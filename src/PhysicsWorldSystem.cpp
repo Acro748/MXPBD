@@ -17,17 +17,8 @@ namespace MXPBD
 
     void XPBDWorldSystem::AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot) 
     {
-        if (!object || !rootNode)
+        if (!object)
             return;
-        {
-            std::lock_guard lg(objectDataLock);
-            const ObjectData newData = {.rootNode = RE::NiPointer(rootNode), .rootType = rootType, .bipedSlot = bipedSlot};
-            auto it = std::find(objectData[object->formID].begin(), objectData[object->formID].end(), newData);
-            if (it == objectData[object->formID].end())
-            {
-                objectData[object->formID].push_back(newData);
-            }
-        }
         if (rootType == XPBDWorld::RootType::skeleton)
         {
             AddSkeletonPhysics(object, rootNode);
@@ -262,30 +253,38 @@ namespace MXPBD
 
     void XPBDWorldSystem::AddSkeletonPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode)
     {
-        if (!object || !rootNode)
+        if (!object)
             return;
-        PhysicsInput newInput = Mus::ConditionManager::GetSingleton().GetCondition(GetActor(object));
-        newInput.bipedSlot = 0;
-        CreateProperties(rootNode, newInput);
+        if (!rootNode)
         {
-            ObjectData data = {.rootType = XPBDWorld::RootType::skeleton, .bipedSlot = 0, .input = newInput};
+            if (!object->loadedData || !object->loadedData->data3D)
+                return;
+            rootNode = object->loadedData->data3D->AsNode();
+            if (!rootNode)
+                return;
+        }
+        ObjectData data = {.rootType = XPBDWorld::RootType::skeleton, .bipedSlot = 0};
+        {
             std::lock_guard lg(objectDataLock);
             auto it = std::find(objectData[object->formID].begin(), objectData[object->formID].end(), data);
-            if (it == objectData[object->formID].end())
-            {
-                objectData[object->formID].push_back(data);
-            }
-            else
-            {
-                *it = data;
-            }
+            if (it != objectData[object->formID].end())
+                return;
         }
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::skeleton, newInput);
+        data.input = Mus::ConditionManager::GetSingleton().GetCondition(GetActor(object));
+        data.bipedSlot = 0;
+        CreateProperties(rootNode, data.input);
+        {
+            std::lock_guard lg(objectDataLock);
+            objectData[object->formID].push_back(data);
+        }
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::skeleton, data.input);
     }
 
     void XPBDWorldSystem::AddClothPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const std::uint32_t bipedSlot)
     {
-        if (!object || !rootNode)
+        if (!object)
+            return;
+        if (!rootNode)
             return;
         auto geometries = GetGeometries(rootNode, bipedSlot);
         if (geometries.empty())
@@ -548,7 +547,7 @@ namespace MXPBD
                     cons.second.squishDamping[i] = cons.second.squishDamping[anchIdx];
                     cons.second.stretchDamping[i] = cons.second.stretchDamping[anchIdx];
 
-                    logger::info("{} : added particle for {} on {}", particleBoneName, cons.first, parentName);
+                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentName);
                 }
                 newPhysicsBones.emplace_back(parentName, PhysicsInput::Bone());
                 break;
@@ -657,7 +656,7 @@ namespace MXPBD
                     cons.second.limit[i] = cons.second.limit[anchIdx];
                     cons.second.damping[i] = cons.second.damping[anchIdx];
 
-                    logger::info("{} : added particle for {} on {}", particleBoneName, cons.first, parentName);
+                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentName);
                 }
                 newPhysicsBones.emplace_back(parentName, PhysicsInput::Bone());
                 break;
@@ -770,7 +769,7 @@ namespace MXPBD
                         Physics->QueryFloatAttribute("rotRatio", &boneSetting.rotRatio);
                         Physics->QueryFloatAttribute("gravity", &boneSetting.gravity);
                         Physics->QueryFloatAttribute("linearRotTorque", &boneSetting.linearRotTorque);
-                        logger::info("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / rotRatio {} / gravity {} / linearRotTorque {}", file, name, boneSetting.mass, boneSetting.damping, boneSetting.inertiaScale, boneSetting.rotRatio, boneSetting.gravity, boneSetting.linearRotTorque);
+                        logger::debug("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / rotRatio {} / gravity {} / linearRotTorque {}", file, name, boneSetting.mass, boneSetting.damping, boneSetting.inertiaScale, boneSetting.rotRatio, boneSetting.gravity, boneSetting.linearRotTorque);
                     }
                     if (tinyxml2::XMLElement* Offset = Bone->FirstChildElement("Offset"); Offset)
                     {
@@ -780,7 +779,7 @@ namespace MXPBD
                         const char* pTarget = Offset->Attribute("target");
                         if (pTarget && isParticle)
                             boneSetting.parentBoneName = pTarget;
-                        logger::info("{} : bone offset {} - pos {}{}{}{}", file, name, boneSetting.offset, isParticle ? " /" : "", isParticle ? " target " : "", isParticle ? boneSetting.parentBoneName : "");
+                        logger::debug("{} : bone offset {} - pos {}{}{}{}", file, name, boneSetting.offset, isParticle ? " /" : "", isParticle ? " target " : "", isParticle ? boneSetting.parentBoneName : "");
                     }
                     if (tinyxml2::XMLElement* Collider = Bone->FirstChildElement("Collider"); Collider)
                     {
@@ -788,7 +787,7 @@ namespace MXPBD
                         Collider->QueryFloatAttribute("margin", &boneSetting.colMargin);
                         Collider->QueryFloatAttribute("friction", &boneSetting.colFriction);
                         Collider->QueryFloatAttribute("softness", &colComp);
-                        logger::info("{} : bone collider {} - margin {} / friction {} / softness {}", file, name, boneSetting.colMargin, boneSetting.colFriction, colComp);
+                        logger::debug("{} : bone collider {} - margin {} / friction {} / softness {}", file, name, boneSetting.colMargin, boneSetting.colFriction, colComp);
                         boneSetting.colComp = colComp * COMPLIANCE_SCALE;
                     }
                     if (isParticle && boneSetting.parentBoneName.empty())
@@ -805,7 +804,7 @@ namespace MXPBD
                         continue;
                     input.convexHullColliders.noCollideBones[aBoneName].insert(bBoneName);
                     input.convexHullColliders.noCollideBones[bBoneName].insert(aBoneName);
-                    logger::info("{} : bone no collide {} - {}", file, aBoneName, bBoneName);
+                    logger::debug("{} : bone no collide {} - {}", file, aBoneName, bBoneName);
                 }
             }
         }
@@ -858,7 +857,7 @@ namespace MXPBD
                         cons.angularLimit.push_back(DirectX::XMConvertToRadians(angularLimit));
                         cons.squishDamping.push_back(squishDamping);
                         cons.stretchDamping.push_back(stretchDamping);
-                        logger::info("{} : bone add anchor {}({}|{}) - complianceSquish {} / complianceStretch {} / squishLimit {} / stretchLimit {} / angularLimit {} / squishDamping {} / stretchDamping {}", file, target, name, anchorIdx, complianceSquish, complianceStretch, squishLimit, stretchLimit, angularLimit, squishDamping, stretchDamping);
+                        logger::debug("{} : bone add anchor {}({}|{}) - complianceSquish {} / complianceStretch {} / squishLimit {} / stretchLimit {} / angularLimit {} / squishDamping {} / stretchDamping {}", file, target, name, anchorIdx, complianceSquish, complianceStretch, squishLimit, stretchLimit, angularLimit, squishDamping, stretchDamping);
                         anchorIdx++;
                     }
                     input.constraints.emplace(target, cons);
@@ -902,7 +901,7 @@ namespace MXPBD
                         angCons.compliance.push_back(compliance * COMPLIANCE_SCALE);
                         angCons.limit.push_back(DirectX::XMConvertToRadians(limit));
                         angCons.damping.push_back(damping);
-                        logger::info("{} : bone add anchor {}({}|{}) - compliance {} / limit {} / damping {}", file, target, name, anchorIdx, compliance, limit, damping);
+                        logger::debug("{} : bone add anchor {}({}|{}) - compliance {} / limit {} / damping {}", file, target, name, anchorIdx, compliance, limit, damping);
                         anchorIdx++;
                     }
                     it->second.advancedRotation = 1;
@@ -938,7 +937,7 @@ namespace MXPBD
     {
         if (!e.root || !e.facegenNiNode)
             return;
-        logger::info("FacegenNiNodeEvent : {:x}", e.root->GetUserData() ? e.root->GetUserData()->formID : 0);
+        logger::debug("FacegenNiNodeEvent : {:x}", e.root->GetUserData() ? e.root->GetUserData()->formID : 0);
         if (!IsHDTSMPEnabled)
             MergeFacegenNodeTree(e.root, e.facegenNiNode, e.geometry);
     }
@@ -949,7 +948,7 @@ namespace MXPBD
             return;
         if (!e.hasAttached)
         {
-            logger::info("ArmorAttachEvent : {:x} {}", e.actor->formID, e.bipedSlot);
+            logger::debug("ArmorAttachEvent : {:x} {}", e.actor->formID, e.bipedSlot);
             PhysicsInput input;
             if (std::string physicsPath = GetPhysicsInputPath(e.armor); !physicsPath.empty())
                 input = GeyPhysicsInput(physicsPath);
@@ -983,7 +982,7 @@ namespace MXPBD
             return;
         if (!e.actor)
             return;
-        logger::info("ArmorDetachEvent : {:x}", e.actor->formID);
+        logger::debug("ArmorDetachEvent : {:x}", e.actor->formID);
         std::vector<std::uint32_t> bipedSlotsToRemove;
         {
             std::lock_guard lg(objectDataLock);

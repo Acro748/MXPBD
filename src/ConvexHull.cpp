@@ -171,7 +171,6 @@ namespace MXPBD
         {
             PhysicsInput::ConvexHullColliders::ConvexHullCollider collider;
             collider.boneName = data.first;
-            // logger::info("{} => {} vertices", data.first, data.second.size());
             const float* vertData = reinterpret_cast<const float*>(data.second.data());
             GenerateConvexHull(vertData, data.second.size(), collider.vertices, collider.indices);
             colliders.colliders.push_back(collider);
@@ -190,6 +189,8 @@ namespace MXPBD
             using State = RE::BSGeometry::States;
             using Feature = RE::BSShaderMaterial::Feature;
             if (!geo || geo->name.empty())
+                return RE::BSVisit::BSVisitControl::kContinue;
+            if (isOverlayGeometry(geo->name.c_str()))
                 return RE::BSVisit::BSVisitControl::kContinue;
             auto effect = geo->GetGeometryRuntimeData().properties[State::kEffect].get();
             if (!effect)
@@ -248,6 +249,8 @@ namespace MXPBD
             using Feature = RE::BSShaderMaterial::Feature;
             if (!geo || geo->name.empty())
                 return RE::BSVisit::BSVisitControl::kContinue;
+            if (isOverlayGeometry(geo->name.c_str()))
+                return RE::BSVisit::BSVisitControl::kContinue;
             auto effect = geo->GetGeometryRuntimeData().properties[State::kEffect].get();
             if (!effect)
                 return RE::BSVisit::BSVisitControl::kContinue;
@@ -272,7 +275,7 @@ namespace MXPBD
         {
             objFile << "f " << indBuf[i * 3] + 1 << " " << indBuf[i * 3 + 1] + 1 << " " << indBuf[i * 3 + 2] + 1 << "\n";
         }
-        logger::info("{} : {} vert / {} tris", objectName, vertices.size(), indices.size() / 3);
+        logger::debug("{} : {} vert / {} tris", objectName, vertices.size(), indices.size() / 3);
         objFile.close();
     }
 }

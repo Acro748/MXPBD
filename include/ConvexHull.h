@@ -12,6 +12,9 @@ namespace MXPBD {
     std::unordered_set<RE::BSGeometry*> GetGeometries(RE::NiNode* root, std::uint32_t bipedSlot);
     std::unordered_set<RE::BSGeometry*> GetGeometries(RE::NiNode* root);
 
+    inline bool isOverlayGeometry(std::string name) {
+        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+        return name.contains("overlay") || name.contains("[Ovl") || name.contains("[SOvl");
+    }
     void writeWaveformOBJ(const std::string& filename, const std::string& objectName, const std::vector<RE::NiPoint3>& vertices, const std::vector<std::uint32_t>& indices);
-	
 }
