@@ -46,7 +46,7 @@ namespace MXPBD
         {
             if (!geo || geo->name.empty())
                 continue;
-            logger::info("Get geometry data... {}", geo->name.c_str());
+            logger::debug("Get geometry data... {}", geo->name.c_str());
             const RE::BSTriShape* triShape = geo->AsTriShape();
             if (!triShape)
                 continue;

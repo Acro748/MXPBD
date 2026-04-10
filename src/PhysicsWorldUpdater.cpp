@@ -31,7 +31,7 @@ namespace MXPBD
             return;
         if (!root)
         {
-            logger::info("{:x} {} : there is no root", a_actor->formID, biped);
+            logger::error("{:x} {} : there is no root", a_actor->formID, biped);
             return;
         }
         logger::info("Adding physics {:x}", a_actor->formID);
@@ -124,7 +124,7 @@ namespace MXPBD
         auto actor = skyrim_cast<RE::Actor*>(refr);
         if (!actor || !actor->loadedData || !actor->loadedData->data3D)
             return;
-        logger::info("FacegenNiNodeEvent : {:x}", actor->formID);
+        logger::debug("FacegenNiNodeEvent : {:x}", actor->formID);
         RegisterSkeletonQueue(actor);
     }
 
@@ -138,7 +138,7 @@ namespace MXPBD
             return;
         if (!e.actor/* || !e.actor->loadedData || !e.actor->loadedData->data3D || !e.armor*/)
             return;
-        logger::info("ArmorAttachEvent : {:x} {}", e.actor->formID, e.bipedSlot);
+        logger::debug("ArmorAttachEvent : {:x} {}", e.actor->formID, e.bipedSlot);
         RegisterSkeletonQueue(e.actor);
         RegisterArmorQueue(e.actor, e.bipedSlot, true);
     }
