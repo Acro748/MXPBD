@@ -1,0 +1,6 @@
+[submodule "extern/VHACD"]
+	path = extern/VHACD
+	url = https://github.com/Unity-Technologies/VHACD.git
+[submodule "extern/quickhull"]
+	path = extern/quickhull
+	url = https://github.com/akuukka/quickhull.git
