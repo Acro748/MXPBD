@@ -22,18 +22,11 @@ namespace MXPBD {
         void Reset(RE::TESObjectREFR* object) const;
         void RemovePhysics(const RE::FormID objectID);
         void RemovePhysics(RE::TESObjectREFR* object, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot);
-
-        PhysicsInput GeyPhysicsInput(const std::string& file) const;
-        PhysicsInput GeyPhysicsInput(tinyxml2::XMLElement* root, const std::string& file) const;
     private:
         std::unique_ptr<XPBDWorld> physicsWorld;
 
         void AddSkeletonPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode);
         void AddClothPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const std::uint32_t bipedSlot);
-        void CreateParent(RE::NiNode* rootNode, PhysicsInput& input);
-        void CreateOriginal(RE::NiNode* rootNode, PhysicsInput& input);
-        void CreateSoftBody(RE::NiNode* rootNode, PhysicsInput& input);
-        void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input);
 
         struct ObjectData {
             RE::NiPointer<RE::NiAVObject> rootNode;

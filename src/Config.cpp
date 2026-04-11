@@ -172,7 +172,7 @@ namespace Mus {
                     ConditionRoot->QueryIntAttribute("priority", &condition.Priority);
                     logger::info("{} : priority {}", filename, condition.Priority);
 
-                    condition.setting = MXPBD::XPBDWorldSystem::GetSingleton().GeyPhysicsInput(root, filename);
+                    condition.setting = MXPBD::GeyPhysicsInput(root, filename);
                     ConditionManager::GetSingleton().RegisterCondition(condition);
                 }
             },

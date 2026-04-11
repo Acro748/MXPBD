@@ -1,4 +1,4 @@
-﻿#include "PhysicsWorld.h"
+﻿#include "MXPBD/PhysicsWorld.h"
 
 #define TIMELOG_START                                               \
     static double nsSum = 0.0;                                      \
@@ -964,8 +964,8 @@ namespace MXPBD
                                     physicsBones.predRot[bi] = physicsBones.rot[bi];
                                     physicsBones.angVel[bi] = EmptyVector;
 
-                                    RE::NiUpdateData ctx = {.time = 0.0f, .flags = RE::NiUpdateData::Flag::kNone};
-                                    node->UpdateWorldData(&ctx);
+                                    //RE::NiUpdateData ctx = {.time = 0.0f, .flags = RE::NiUpdateData::Flag::kNone};
+                                    //node->UpdateWorldData(&ctx);
                                 }
                                 else if (!physicsBones.particleName[bi].empty() && physicsBones.parentBoneIdx[bi] != UINT32_MAX)
                                 {

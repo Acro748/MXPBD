@@ -6,7 +6,7 @@ message("Using toolchain file ${CMAKE_TOOLCHAIN_FILE}.")
 ########################################################################################################################
 project(
         MXPBD
-        VERSION 0.0.1
+        VERSION 0.0.2
         DESCRIPTION "Mu Extended Position Based Dynamics by Acro"
         LANGUAGES CXX
 )
@@ -23,34 +23,36 @@ configure_file(
 )
 
 set(headers
+        include/MXPBD/ConvexHull.h
+        include/MXPBD/DynamicAABBTree.h
+        include/MXPBD/PhysicsConfig.h
+        include/MXPBD/PhysicsWorld.h
+        include/MXPBD/PhysicsWorldCommon.h
+        include/MXPBD/PhysicsWorldSystem.h
+        include/MXPBD/PhysicsWorldUpdater.h
         include/Command.h
         include/Condition.h
         include/Config.h
-        include/ConvexHull.h
-        include/DynamicAABBTree.h
         include/Hook.h
         include/lString.h
         include/nifUtil.h
-        include/PhysicsWorld.h
-        include/PhysicsWorldCommon.h
-        include/PhysicsWorldSystem.h
-        include/PhysicsWorldUpdater.h
         include/Store.h
         include/Utility.hpp
 )
 
 set(sources
+        src/MXPBD/ConvexHull.cpp
+        src/MXPBD/DynamicAABBTree.cpp
+        src/MXPBD/PhysicsConfig.cpp
+        src/MXPBD/PhysicsWorld.cpp
+        src/MXPBD/PhysicsWorldSystem.cpp
+        src/MXPBD/PhysicsWorldUpdater.cpp
         src/Command.cpp
         src/Condition.cpp
         src/Config.cpp
-        src/ConvexHull.cpp
-        src/DynamicAABBTree.cpp
         src/Hook.cpp
         src/Main.cpp
         src/nifUtil.cpp
-        src/PhysicsWorld.cpp
-        src/PhysicsWorldSystem.cpp
-        src/PhysicsWorldUpdater.cpp
         src/Store.cpp
 
         ${CMAKE_CURRENT_BINARY_DIR}/version.rc

@@ -1,4 +1,4 @@
-#include "DynamicAABBTree.h"
+#include "MXPBD/DynamicAABBTree.h"
 
 namespace MXPBD {
     void DynamicAABBTree::Clear()

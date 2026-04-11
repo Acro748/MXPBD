@@ -149,12 +149,13 @@ using EventResult = RE::BSEventNotifyControl;
 #include "nifUtil.h"
 #include "Utility.hpp"
 
-#include "PhysicsWorldCommon.h"
-#include "ConvexHull.h"
-#include "DynamicAABBTree.h"
-#include "PhysicsWorld.h"
-#include "PhysicsWorldSystem.h"
-#include "PhysicsWorldUpdater.h"
+#include "MXPBD/PhysicsWorldCommon.h"
+#include "MXPBD/PhysicsConfig.h"
+#include "MXPBD/ConvexHull.h"
+#include "MXPBD/DynamicAABBTree.h"
+#include "MXPBD/PhysicsWorld.h"
+#include "MXPBD/PhysicsWorldSystem.h"
+#include "MXPBD/PhysicsWorldUpdater.h"
 
 #include "Condition.h"
 

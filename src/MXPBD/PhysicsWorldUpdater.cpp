@@ -1,5 +1,5 @@
-#include "PhysicsWorldUpdater.h"
 #include "QuickHull.hpp"
+#include "MXPBD/PhysicsWorldUpdater.h"
 #include "meshoptimizer.h"
 
 namespace MXPBD
