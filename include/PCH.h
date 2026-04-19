@@ -130,16 +130,22 @@ namespace util {
 
 using EventResult = RE::BSEventNotifyControl;
 
+#include "B/BSFaceGenBaseMorphExtraData.h"
+
 #define MAGIC_ENUM_RANGE_MIN -128
 #define MAGIC_ENUM_RANGE_MAX 128
 #include <magic_enum/magic_enum.hpp>
 
 #include <tinyxml2.h>
 
+#include <ankerl/unordered_dense.h>
+
+#include <tbb/task_scheduler_observer.h>
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_for_each.h>
 #include <tbb/parallel_invoke.h>
 #include <tbb/concurrent_unordered_map.h>
+#include <tbb/concurrent_hash_map.h>
 
 #include "lString.h"
 #include "Hook.h"
@@ -149,10 +155,11 @@ using EventResult = RE::BSEventNotifyControl;
 #include "nifUtil.h"
 #include "Utility.hpp"
 
+#include "MXPBD/ThreadPool.h"
 #include "MXPBD/PhysicsWorldCommon.h"
-#include "MXPBD/PhysicsConfig.h"
-#include "MXPBD/ConvexHull.h"
 #include "MXPBD/DynamicAABBTree.h"
+#include "MXPBD/ConvexHull.h"
+#include "MXPBD/PhysicsConfig.h"
 #include "MXPBD/PhysicsWorld.h"
 #include "MXPBD/PhysicsWorldSystem.h"
 #include "MXPBD/PhysicsWorldUpdater.h"

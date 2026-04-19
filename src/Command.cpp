@@ -30,11 +30,18 @@ namespace Mus {
 
 		if (IsSameString(str1, "reload"))
 		{
-            ConditionManager::GetSingleton().InitialCondition();
-            static_cast<MultipleConfig*>(&Config::GetSingleton())->LoadSkeletonFile();
-            ConditionManager::GetSingleton().SortConditions();
-            if (a_actor->loadedData && a_actor->loadedData->data3D)
-                MXPBD::XPBDWorldUpdater::GetSingleton().UpdatePhysicsSetting(a_actor);
+            if (IsSameString(str2, "config"))
+            {
+                Config::GetSingleton().LoadConfig();
+            }
+            else
+            {
+                ConditionManager::GetSingleton().InitialCondition();
+                static_cast<MultipleConfig*>(&Config::GetSingleton())->LoadSkeletonFile();
+                ConditionManager::GetSingleton().SortConditions();
+                if (a_actor->loadedData && a_actor->loadedData->data3D)
+                    MXPBD::XPBDWorldUpdater::GetSingleton().UpdatePhysicsSetting(a_actor);
+            }
 		}
 		else if (IsSameString(str1, "reset"))
 		{

@@ -6,7 +6,7 @@ message("Using toolchain file ${CMAKE_TOOLCHAIN_FILE}.")
 ########################################################################################################################
 project(
         MXPBD
-        VERSION 0.0.2
+        VERSION 0.1.0
         DESCRIPTION "Mu Extended Position Based Dynamics by Acro"
         LANGUAGES CXX
 )
@@ -30,6 +30,7 @@ set(headers
         include/MXPBD/PhysicsWorldCommon.h
         include/MXPBD/PhysicsWorldSystem.h
         include/MXPBD/PhysicsWorldUpdater.h
+        include/MXPBD/ThreadPool.h
         include/Command.h
         include/Condition.h
         include/Config.h
@@ -47,6 +48,9 @@ set(sources
         src/MXPBD/PhysicsWorld.cpp
         src/MXPBD/PhysicsWorldSystem.cpp
         src/MXPBD/PhysicsWorldUpdater.cpp
+        src/MXPBD/ThreadPool.cpp
+        src/MXPBD/SIMD_avx2.cpp
+        src/MXPBD/SIMD_avx512.cpp
         src/Command.cpp
         src/Condition.cpp
         src/Config.cpp
@@ -101,6 +105,7 @@ target_include_directories(
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/src>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/extern/quickhull>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ExtraRE/include>
         ${DETOURS_INCLUDE_DIRS}
 )
 
@@ -131,8 +136,16 @@ target_link_libraries(
 target_precompile_headers(
     ${PROJECT_NAME}
     PRIVATE
-        include/PCH.h)
-        
+        include/PCH.h
+)
+set_source_files_properties(
+    src/MXPBD/SIMD_avx2.cpp
+    PROPERTIES COMPILE_OPTIONS "/arch:AVX2"
+)
+set_source_files_properties(
+    src/MXPBD/SIMD_avx512.cpp
+    PROPERTIES COMPILE_OPTIONS "/arch:AVX512"
+)
 target_compile_options(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Release>:/sdl;/utf-8;/Zi;/permissive-;/Zc:preprocessor;/Zc:inline;/JMC-;/O2;/Ob3;/arch:AVX>")
 target_link_options(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Release>:/INCREMENTAL:NO;/OPT:REF;/OPT:ICF;/DEBUG:FULL>")
 

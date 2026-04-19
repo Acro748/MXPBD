@@ -1,6 +1,7 @@
 #pragma once
 
 namespace MXPBD {
+    using RenameStringMap = std::unordered_map<std::string, std::string>;
     struct PhysicsInput {
         std::uint32_t bipedSlot = 0;
 
@@ -8,8 +9,7 @@ namespace MXPBD {
             float mass = 0.0f;
             float damping = 0.0f;
             float inertiaScale = 0.0f;
-            float rotRatio = 0.0f;
-            std::uint8_t advancedRotation = 0;
+            float rotRatio = 0.1f;
             float gravity = 1.0f;
             RE::NiPoint3 offset = EmptyPoint;
             float colMargin = 0.5f;
@@ -45,22 +45,23 @@ namespace MXPBD {
         std::unordered_map<std::string, AngularConstraint> angularConstraints; // boneName, AngularConstraint
 
         struct ConvexHullColliders {
-            struct ConvexHullCollider {
-                std::vector<RE::NiPoint3> vertices;
-                std::vector<std::uint32_t> indices;
-                std::string boneName;
-            };
-            std::vector<ConvexHullCollider> colliders;
-            std::unordered_map<std::string, std::unordered_set<std::string>> noCollideBones;
+            std::unordered_map<std::string, ConvexHullDataBatch> colliders; // boneName, convexHull
+            NearBones noCollideBones;
         };
         ConvexHullColliders convexHullColliders;
     };
 
-    PhysicsInput GeyPhysicsInput(const std::string& file);
-    PhysicsInput GeyPhysicsInput(tinyxml2::XMLElement* root, const std::string& file);
-
     void CreateParent(RE::NiNode* rootNode, PhysicsInput& input);
     void CreateOriginal(RE::NiNode* rootNode, PhysicsInput& input);
-    void CreateSoftBody(RE::NiNode* rootNode, PhysicsInput& input);
-    void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input);
+    void CreateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas);
+    void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas);
+
+    PhysicsInput GetPhysicsInput(const std::string& file);
+    PhysicsInput GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file);
+
+    PhysicsInput ConvertSMPConfig(const std::string& file);
+    PhysicsInput ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file);
+
+    void FixBoneName(PhysicsInput& input, const RenameStringMap& map);
+
 } // namespace MXPBD

@@ -1,73 +1,70 @@
 #pragma once
 
 namespace MXPBD {
-    constexpr float AABB_MARGIN = 1.0f;
-
     struct AABB {
-        float minX = 0.0f, minY = 0.0f, minZ = 0.0f;
-        float maxX = 0.0f, maxY = 0.0f, maxZ = 0.0f;
+        AABB() : min(DirectX::XMVectorReplicate(FLT_MAX)), max(DirectX::XMVectorReplicate(-FLT_MAX)) {}
+        AABB(const Vector& a_min, const Vector& a_max) : min(a_min), max(a_max) {}
+        Vector min = EmptyVector;
+        Vector max = EmptyVector;
 
         inline bool Overlaps(const AABB& b) const {
-            if (maxX < b.minX || minX > b.maxX)
-                return false;
-            if (maxY < b.minY || minY > b.maxY)
-                return false;
-            if (maxZ < b.minZ || minZ > b.maxZ)
-                return false;
-            return true;
+            const Vector fail1 = DirectX::XMVectorGreater(min, b.max);
+            const Vector fail2 = DirectX::XMVectorLess(max, b.min);
+            const Vector fail = DirectX::XMVectorOrInt(fail1, fail2);
+            return DirectX::XMComparisonAllTrue(DirectX::XMVector3EqualIntR(fail, DirectX::XMVectorFalseInt()));
         }
 
         inline AABB Merge(const AABB& b) const {
-            return {
-                std::min(minX, b.minX), std::min(minY, b.minY), std::min(minZ, b.minZ),
-                std::max(maxX, b.maxX), std::max(maxY, b.maxY), std::max(maxZ, b.maxZ)};
+            return {DirectX::XMVectorMin(min, b.min), DirectX::XMVectorMax(max, b.max)};
         }
 
         inline float SurfaceArea() const {
-            float dX = maxX - minX;
-            float dY = maxY - minY;
-            float dZ = maxZ - minZ;
-            return 2.0f * (dX * dY + dY * dZ + dZ * dX);
+            const Vector d = DirectX::XMVectorSubtract(max, min);
+            const Vector dSwizzled = DirectX::XMVectorSwizzle<DirectX::XM_SWIZZLE_Y, DirectX::XM_SWIZZLE_Z, DirectX::XM_SWIZZLE_X, DirectX::XM_SWIZZLE_W>(d);
+            Vector area = DirectX::XMVector3Dot(d, dSwizzled);
+            area = DirectX::XMVectorAdd(area, area);
+            return DirectX::XMVectorGetX(area);
         }
 
-        inline void Fatten() {
-            minX -= AABB_MARGIN;
-            minY -= AABB_MARGIN;
-            minZ -= AABB_MARGIN;
-            maxX += AABB_MARGIN;
-            maxY += AABB_MARGIN;
-            maxZ += AABB_MARGIN;
+        inline void Fatten(const float margin = 1.0f) {
+            Vector vMargin = DirectX::XMVectorReplicate(margin);
+            DirectX::XMVectorSetW(vMargin, 0.0f);
+            min = DirectX::XMVectorSubtract(min, vMargin);
+            max = DirectX::XMVectorAdd(max, vMargin);
         }
 
         inline AABB GetWorldAABB(const Vector& pos, const Quaternion& rot, const float scale) const {
-            const DirectX::XMVECTOR vMin = DirectX::XMVectorSet(minX, minY, minZ, 0.0f);
-            const DirectX::XMVECTOR vMax = DirectX::XMVectorSet(maxX, maxY, maxZ, 0.0f);
-
-            const DirectX::XMVECTOR centerLocal = DirectX::XMVectorScale(DirectX::XMVectorAdd(vMax, vMin), 0.5f);
-            const DirectX::XMVECTOR extentsLocal = DirectX::XMVectorScale(DirectX::XMVectorSubtract(vMax, vMin), 0.5f * scale);
+            const Vector centerLocal = DirectX::XMVectorScale(DirectX::XMVectorAdd(max, min), 0.5f);
+            const Vector extentsLocal = DirectX::XMVectorScale(DirectX::XMVectorSubtract(max, min), 0.5f * scale);
 
             const DirectX::XMMATRIX R = DirectX::XMMatrixRotationQuaternion(rot);
-            const DirectX::XMVECTOR centerWorld = DirectX::XMVectorAdd(pos, XMVector3TransformNormal(DirectX::XMVectorScale(centerLocal, scale), R));
-            const DirectX::XMVECTOR absR0 = DirectX::XMVectorAbs(R.r[0]);
-            const DirectX::XMVECTOR absR1 = DirectX::XMVectorAbs(R.r[1]);
-            const DirectX::XMVECTOR absR2 = DirectX::XMVectorAbs(R.r[2]);
+            const Vector centerWorld = DirectX::XMVectorAdd(pos, XMVector3TransformNormal(DirectX::XMVectorScale(centerLocal, scale), R));
+            const Vector absR0 = DirectX::XMVectorAbs(R.r[0]);
+            const Vector absR1 = DirectX::XMVectorAbs(R.r[1]);
+            const Vector absR2 = DirectX::XMVectorAbs(R.r[2]);
 
-            const DirectX::XMVECTOR ex = DirectX::XMVectorSplatX(extentsLocal);
-            const DirectX::XMVECTOR ey = DirectX::XMVectorSplatY(extentsLocal);
-            const DirectX::XMVECTOR ez = DirectX::XMVectorSplatZ(extentsLocal);
+            const Vector ex = DirectX::XMVectorSplatX(extentsLocal);
+            const Vector ey = DirectX::XMVectorSplatY(extentsLocal);
+            const Vector ez = DirectX::XMVectorSplatZ(extentsLocal);
 
-            const DirectX::XMVECTOR extentsWorld = DirectX::XMVectorAdd(
+            const Vector extentsWorld = DirectX::XMVectorAdd(
                 DirectX::XMVectorAdd(DirectX::XMVectorMultiply(ex, absR0), DirectX::XMVectorMultiply(ey, absR1)),
                 DirectX::XMVectorMultiply(ez, absR2));
 
-            const DirectX::XMVECTOR wMin = DirectX::XMVectorSubtract(centerWorld, extentsWorld);
-            const DirectX::XMVECTOR wMax = DirectX::XMVectorAdd(centerWorld, extentsWorld);
+            const Vector wMin = DirectX::XMVectorSubtract(centerWorld, extentsWorld);
+            const Vector wMax = DirectX::XMVectorAdd(centerWorld, extentsWorld);
+            return {wMin, wMax};
+        }
 
-            DirectX::XMFLOAT3 fMin, fMax;
-            DirectX::XMStoreFloat3(&fMin, wMin);
-            DirectX::XMStoreFloat3(&fMax, wMax);
+        inline bool IsContains(const AABB& b) const {
+            const Vector minCheck = DirectX::XMVectorLessOrEqual(min, b.min);
+            const Vector maxCheck = DirectX::XMVectorGreaterOrEqual(max, b.max);
+            const Vector bothCheck = DirectX::XMVectorAndInt(minCheck, maxCheck);
+            return DirectX::XMComparisonAllTrue(DirectX::XMVector3EqualIntR(bothCheck, DirectX::XMVectorTrueInt()));
+        }
 
-            return {fMin.x, fMin.y, fMin.z, fMax.x, fMax.y, fMax.z};
+        inline bool IsZero() const {
+            return DirectX::XMVectorGetX(min) == FLT_MAX || (DirectX::XMVectorGetX(min) == 0.0f && DirectX::XMVectorGetX(max) == 0.0f);
         }
     };
 

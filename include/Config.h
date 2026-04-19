@@ -25,8 +25,17 @@ namespace Mus {
         [[nodiscard]] inline auto GetIterationMax() const noexcept {
             return IterationMax;
         }
-        [[nodiscard]] inline auto GetGridSize() const noexcept {
-            return GridSize;
+        [[nodiscard]] inline auto GetSmallGridSize() const noexcept {
+            return SmallGridSize;
+        }
+        [[nodiscard]] inline auto GetLargeGridSize() const noexcept {
+            return LargeGridSize;
+        }
+        [[nodiscard]] inline auto GetSIMDType() const noexcept {
+            return SIMDType;
+        }
+        [[nodiscard]] inline auto GetValidBoneWeightThreshold() const noexcept {
+            return ValidBoneWeightThreshold;
         }
 
     protected:
@@ -36,7 +45,10 @@ namespace Mus {
 
         //General
         std::uint8_t IterationMax = 5;
-        float GridSize = 25.0f;
+        float SmallGridSize = 30.0f;
+        float LargeGridSize = 100.0f;
+        std::uint8_t SIMDType = 0;
+        float ValidBoneWeightThreshold = 0.0001f;
 
     public:
         inline std::string getCurrentSettingValue(std::string s)

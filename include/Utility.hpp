@@ -866,4 +866,14 @@ namespace Mus {
             bitNum &= (bitNum - 1);
         }
     }
+
+    inline RE::BSFixedString* BSFixedStringSet(RE::BSFixedString& ref, const char* a_data) {
+        using func_t = decltype(&BSFixedStringSet);
+        REL::Relocation<func_t> func{REL::VariantID(67823, 69165, 0x00C6DC90)};
+        return func(ref, a_data);
+    }
+
+    inline void setNiNodeName(RE::NiNode* node, const char* name) {
+        BSFixedStringSet(node->name, name);
+    }
 }

@@ -111,9 +111,21 @@ namespace Mus {
                 {
                     IterationMax = std::max(1u, GetUIntValue(variableValue));
                 }
-                else if (variableName == "GridSize")
+                else if (variableName == "SmallGridSize")
                 {
-                    GridSize = GetFloatValue(variableValue);
+                    SmallGridSize = GetFloatValue(variableValue);
+                }
+                else if (variableName == "LargeGridSize")
+                {
+                    LargeGridSize = GetFloatValue(variableValue);
+                }
+                else if (variableName == "SIMDType")
+                {
+                    SIMDType = GetUIntValue(variableValue);
+                }
+                else if (variableName == "ValidBoneWeightThreshold")
+                {
+                    ValidBoneWeightThreshold = GetFloatValue(variableValue);
                 }
 			}
         }
@@ -172,7 +184,7 @@ namespace Mus {
                     ConditionRoot->QueryIntAttribute("priority", &condition.Priority);
                     logger::info("{} : priority {}", filename, condition.Priority);
 
-                    condition.setting = MXPBD::GeyPhysicsInput(root, filename);
+                    condition.setting = MXPBD::GetPhysicsInput(root, filename);
                     ConditionManager::GetSingleton().RegisterCondition(condition);
                 }
             },

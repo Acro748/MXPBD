@@ -4,56 +4,26 @@
 
 namespace Mus {
 	constexpr REL::VariantID GameLoopFunction(35565, 36564, 0x005BAB10);
-    constexpr REL::VariantID BSFaceGenNiNodeFunction(26405, 26986, 0x003E8120);
-	constexpr REL::VariantID ActorChangeHeadPartFunction(26468, 27063, 0x003EBD30);
+    constexpr REL::VariantID BSFaceGenNiNodeFunction(26406, 26987, 0x003E81B0);
 	constexpr REL::VariantID ArmorAttachFunction(15535, 15712, 0x001DB9E0);
     constexpr REL::VariantID ArmorDetachFunction(37945, 38901, 0x006411A0);
 
 	EventDispatcherImpl<FrameEvent>  g_frameEventDispatcher;
 	EventDispatcherImpl<QuitGameEvent>  g_quitGameEventDispatcher;
 	EventDispatcherImpl<FacegenNiNodeEvent> g_facegenNiNodeEventDispatcher;
-	EventDispatcherImpl<ActorChangeHeadPartEvent> g_actorChangeHeadPartEventDispatcher;
 	EventDispatcherImpl<ArmorAttachEvent> g_armorAttachEventDispatcher;
 	EventDispatcherImpl<ArmorDetachEvent> g_armorDetachEventDispatcher;
 	EventDispatcherImpl<PlayerCellChangeEvent> g_playerCellChangeEventDispatcher;
 
-#ifndef ENABLE_SKYRIM_VR
-	typedef void (*_onFaceGen)(RE::BSFaceGenNiNode*, RE::NiNode*, RE::BSGeometry*, std::uint8_t);
-#else
-	typedef void (*_onFaceGen)(RE::BSFaceGenNiNode*, RE::NiNode*, RE::BSGeometry*);
-#endif
+	typedef void (*_onFaceGen)(RE::BSFaceGenNiNode*, RE::NiNode*, RE::BSGeometry*, RE::BSTriShape*);
 	REL::Relocation<_onFaceGen> onFaceGen_Orig(BSFaceGenNiNodeFunction);
-
-#ifndef ENABLE_SKYRIM_VR
-	void __fastcall onFaceGen(RE::BSFaceGenNiNode* facegen, RE::NiNode* root, RE::BSGeometry* geometry, std::uint8_t unk4)
-#else
-	void __fastcall onFaceGen(RE::BSFaceGenNiNode* facegen, RE::NiNode* root, RE::BSGeometry* geometry)
-#endif
+	void __fastcall onFaceGen(RE::BSFaceGenNiNode* facegen, RE::NiNode* root, RE::BSGeometry* geometry, RE::BSTriShape* triShape)
 	{
 		FacegenNiNodeEvent e;
 		e.root = root;
 		e.facegenNiNode = facegen;
         e.geometry = geometry;
-
-#ifndef ENABLE_SKYRIM_VR
-		onFaceGen_Orig(facegen, root, geometry, unk4);
-#else
-		onFaceGen_Orig(facegen, root, geometry);
-#endif
         g_facegenNiNodeEventDispatcher.dispatch(e);
-	}
-
-	typedef void* (*_ActorChangeHeadPart)(RE::Actor*, RE::BGSHeadPart*, RE::BGSHeadPart*);
-	REL::Relocation<_ActorChangeHeadPart> onActorChangeHeadPart_Orig(ActorChangeHeadPartFunction);
-	void* __fastcall onActorChangeHeadPart(RE::Actor* actor, RE::BGSHeadPart* oldPart, RE::BGSHeadPart* newPart)
-	{
-		void* result = onActorChangeHeadPart_Orig(actor, oldPart, newPart);
-		ActorChangeHeadPartEvent e;
-		e.actor = actor;
-		e.oldHeadPart = oldPart;
-		e.newHeadPart = newPart;
-		g_actorChangeHeadPartEventDispatcher.dispatch(e);
-		return result;
 	}
 
 	typedef RE::NiAVObject* (*_ArmorAttachFunction)(void*, RE::NiNode*, RE::NiNode*, std::int32_t, void*, void*, void*, void*, char, std::int32_t, void*);
@@ -99,10 +69,6 @@ namespace Mus {
 	void hookFacegen()
 	{
 		DetourAttach(&(PVOID&)onFaceGen_Orig, onFaceGen);
-	}
-	void hookActorChangeHeadPart()
-	{
-		DetourAttach(&(PVOID&)onActorChangeHeadPart_Orig, onActorChangeHeadPart);
 	}
 	void hookArmorAttach()
 	{
@@ -173,6 +139,7 @@ namespace Mus {
         std::uintptr_t BoneLimit = HeadPartBoneLimit.address() + HeadPartBoneLimitOffset.offset();
 
         auto& trampoline = SKSE::GetTrampoline();
+        SKSE::AllocTrampoline(41);
         struct FaceGenBoneLimitPatchSE : Xbyak::CodeGenerator
         {
             FaceGenBoneLimitPatchSE(std::uintptr_t a_jumpAddr)
@@ -227,13 +194,12 @@ namespace Mus {
 		DetourTransactionBegin();
 		DetourUpdateThread(GetCurrentThread());
 		hookFacegen();
-		hookActorChangeHeadPart();
 		hookArmorAttach();
         hookArmorDetach();
 		DetourTransactionCommit();
 
 		auto& trampoline = SKSE::GetTrampoline();
-		trampoline.create(64);
+        SKSE::AllocTrampoline(14);
 		hookEngineTrampoline(trampoline);
 	}
 }

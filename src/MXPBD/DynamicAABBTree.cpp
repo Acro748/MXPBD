@@ -108,12 +108,8 @@ namespace MXPBD {
 
     std::uint32_t DynamicAABBTree::UpdateLeaf(const std::uint32_t leafNode, const AABB& newAABB)
     {
-        if (nodes[leafNode].aabb.minX <= newAABB.minX && nodes[leafNode].aabb.maxX >= newAABB.maxX &&
-            nodes[leafNode].aabb.minY <= newAABB.minY && nodes[leafNode].aabb.maxY >= newAABB.maxY &&
-            nodes[leafNode].aabb.minZ <= newAABB.minZ && nodes[leafNode].aabb.maxZ >= newAABB.maxZ)
-        {
+        if (nodes[leafNode].aabb.IsContains(newAABB))
             return leafNode;
-        }
         const std::uint32_t currentObjIdx = nodes[leafNode].objIdx;
         if (currentObjIdx == UINT32_MAX)
             return leafNode;

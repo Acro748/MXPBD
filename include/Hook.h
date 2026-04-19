@@ -75,13 +75,6 @@ namespace Mus {
         RE::BSGeometry* geometry;
 	};
 
-	struct ActorChangeHeadPartEvent
-	{
-		RE::Actor* actor;
-		RE::BGSHeadPart* oldHeadPart;
-		RE::BGSHeadPart* newHeadPart;
-	};
-
 	struct ArmorAttachEvent
 	{
 		RE::Actor* actor;
@@ -106,7 +99,6 @@ namespace Mus {
 	extern EventDispatcherImpl<FrameEvent>  g_frameEventDispatcher;
 	extern EventDispatcherImpl<QuitGameEvent>  g_quitGameEventDispatcher;
 	extern EventDispatcherImpl<FacegenNiNodeEvent> g_facegenNiNodeEventDispatcher;
-	extern EventDispatcherImpl<ActorChangeHeadPartEvent> g_actorChangeHeadPartEventDispatcher;
 	extern EventDispatcherImpl<ArmorAttachEvent> g_armorAttachEventDispatcher;
     extern EventDispatcherImpl<ArmorDetachEvent> g_armorDetachEventDispatcher;
 	extern EventDispatcherImpl<PlayerCellChangeEvent> g_playerCellChangeEventDispatcher;

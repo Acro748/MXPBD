@@ -9,21 +9,44 @@ namespace MXPBD {
     const DirectX::XMVECTOR forwardDir = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     constexpr float DeltaTime60 = 1.0f / 60.0f;
     const std::size_t CoreCount = std::thread::hardware_concurrency();
-    constexpr float FloatPrecision = 1e-6f;
+    constexpr float FloatPrecision = 1e-4f;
     constexpr float ns2ms = 1.0f / 1000000.0f;
     constexpr float colRotBias = 0.2f;
 
     constexpr std::uint8_t ANCHOR_MAX = 4;
-    constexpr std::uint8_t COL_VERTEX_MAX = 16;
-    constexpr std::uint8_t COL_EDGE_MAX = COL_VERTEX_MAX / 2;
-    constexpr std::uint8_t COL_FACE_MAX = COL_VERTEX_MAX;
+    constexpr std::uint8_t COL_VERTEX_MAX = 16; // COL_VERTEX_MAX = 16 * qualityLevel
+    constexpr std::uint8_t COL_EDGE_MAX = 6;
+    constexpr std::uint8_t COL_FACE_MAX = 12;
+    constexpr std::uint8_t AXIS_HISTORY_MAX = 64; // AXIS_HISTORY_MAX <= 1 + (COL_FACE_MAX * 2) + (COL_EDGE_MAX * COL_EDGE_MAX);
     constexpr std::uint8_t NOCOLLIDE_MAX = 16;
-    constexpr std::uint8_t AXIS_HISTORY_MAX = 128;
     constexpr float COMPLIANCE_SCALE = 0.0001f;
     constexpr float COLLIDE_ROTATE_SCALE = 0.1f;
+    constexpr std::uint32_t HASH_TABLE_SIZE = 1009;
+
+    const std::string_view cloneNodePrefix = "[MXPBD]";
+    inline std::string GetArmorCloneNodePrefix(std::uint32_t bipedSlot) {
+        return cloneNodePrefix.data() + std::to_string(bipedSlot) + "&";
+    }
+    inline std::string GetFacegenCloneNodePrefix() {
+        return cloneNodePrefix.data() + std::string("Facegen&");
+    }
+    inline std::string_view GetOriginalNodeName(std::string_view name) {
+        if (!name.starts_with(cloneNodePrefix))
+            return name;
+        std::size_t pos = name.find('&');
+        if (pos != std::string_view::npos) {
+            return name.substr(pos + 1);
+        }
+        return name;
+    }
+    inline bool IsCloneNodeName(const std::string_view name) {
+        return name.size() != GetOriginalNodeName(name).size();
+    }
 
     using Vector = DirectX::XMVECTOR;
     using Quaternion = DirectX::XMVECTOR;
+
+    using NearBones = std::unordered_map<std::string, std::unordered_set<std::string>>;
 
     inline RE::NiPoint3 ToPoint3(const DirectX::XMVECTOR& v) {
         return {DirectX::XMVectorGetX(v), DirectX::XMVectorGetY(v), DirectX::XMVectorGetZ(v)};
@@ -148,4 +171,40 @@ namespace MXPBD {
         while (prev < value && !targetRef.compare_exchange_weak(prev, value, std::memory_order_relaxed))
             ;
     };
+
+    enum SIMDType : std::uint8_t {
+        none,
+        avx,
+        avx2,
+        avx512,
+        total
+    };
+    inline bool HasAVX2Support() {
+        int info[4]{};
+        __cpuidex(info, 7, 0);
+        return (info[1] & (1 << 5)) != 0;
+    }
+    inline bool HasAVX512Support() {
+        int info[4]{};
+        __cpuidex(info, 7, 0);
+        bool avx512f = (info[1] & (1 << 16)) != 0;
+        if (!avx512f)
+            return false;
+        unsigned long long xcrFeatureMask = _xgetbv(0);
+        return (xcrFeatureMask & 0xE6) == 0xE6;
+    }
+    inline SIMDType GetSIMDType(bool scan, std::uint8_t maximum) {
+        static SIMDType SIMDType_ = SIMDType::none;
+        if (SIMDType_ != SIMDType::none && !scan)
+            return SIMDType_;
+        if (maximum <= 0)
+            maximum = SIMDType::avx512;
+        SIMDType_ = SIMDType::avx;
+        if (maximum >= SIMDType::avx512 && HasAVX512Support())
+            SIMDType_ = SIMDType::avx512;
+        else if (maximum >= SIMDType::avx2 && HasAVX2Support())
+            SIMDType_ = SIMDType::avx2;
+        logger::info("Set SIMD type : {}", magic_enum::enum_name(SIMDType_).data());
+        return SIMDType_;
+    }
 }

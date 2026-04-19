@@ -1,62 +1,16 @@
 #pragma once
 
-#include <ankerl/unordered_dense.h>
-#include <tbb/task_scheduler_observer.h>
 namespace MXPBD {
-    class TBB_CoreMasking : public tbb::task_scheduler_observer {
-        DWORD_PTR mask;
-
-    public:
-        TBB_CoreMasking(tbb::task_arena& arena, DWORD_PTR m)
-            : tbb::task_scheduler_observer(arena), mask(m) {
-            observe(true);
-        }
-
-        void on_scheduler_entry(bool worker) override {
-            if (worker) {
-                static thread_local bool pinned = false;
-                if (!pinned) {
-                    SetThreadAffinityMask(GetCurrentThread(), mask);
-                    pinned = true;
-                }
-            }
-        }
-    };
-
-    class TBB_ThreadPool {
-    public:
-        TBB_ThreadPool() = delete;
-        TBB_ThreadPool(std::uint32_t a_threadSize, std::uint64_t a_coreMask)
-            : workers(std::make_unique<tbb::task_arena>(a_threadSize)) {
-            if (a_coreMask != 0)
-                observer = std::make_unique<TBB_CoreMasking>(*workers, a_coreMask);
-        }
-
-        template <typename F>
-        void Execute(F&& f) {
-            workers->execute(std::forward<F>(f));
-        }
-
-        template <typename F>
-        void Enqueue(F&& f) {
-            workers->enqueue(std::forward<F>(f));
-        }
-
-        std::int32_t GetThreadSize() const { return workers->max_concurrency(); }
-
-    private:
-        std::unique_ptr<tbb::task_arena> workers;
-        std::unique_ptr<TBB_CoreMasking> observer;
-    };
-
     class XPBDWorld {
     public:
-        XPBDWorld(std::uint8_t iteration, float gridSize);
+        XPBDWorld(std::uint8_t iteration, float smallGridSize, float largeGridSize, SIMDType simdType);
 
         enum RootType {
             skeleton,
+            facegen,
             cloth,
-            headpart,
+            weapon,
+            collider,
             none,
             total
         };
@@ -68,17 +22,18 @@ namespace MXPBD {
         void RemovePhysics(const RE::FormID objectID);
         void RemovePhysics(RE::TESObjectREFR* object, const RootType rootType, const std::uint32_t bipedSlot);
         void TogglePhysics(const RE::FormID objectID, bool isDisable);
-
         void RunPhysicsWorld(const float deltaTime);
 
     private:
         mutable std::mutex lock;
         const std::uint8_t ITERATION_MAX = 5;
-        const float GRID_SIZE = 20.0f;
+        const float SMALL_GRID_SIZE = 30.0f;
+        const float LARGE_GRID_SIZE = 100.0f;
         bool orderDirty = false;
         std::uint64_t currentFrame = 0;
         std::unique_ptr<TBB_ThreadPool> threadPool;
-        std::unordered_set<RE::FormID> resetObjects;
+        float objectAccelerationTime = 0.0f;
+        float timeAccumulator = 0.0f;
 
         struct CleanObject {
             std::uint32_t objIdx = UINT32_MAX;
@@ -112,16 +67,12 @@ namespace MXPBD {
         };
         ObjectDatas objectDatas;
 
-        using BatchLaneIndex = std::uint32_t;
-        inline std::uint32_t GetBatchIdx(BatchLaneIndex i) { return i >> 3; };
-        inline std::uint8_t GetLaneIdx(BatchLaneIndex i) { return i & 0x7; };
-        inline BatchLaneIndex SetBatchLaneIdx(std::uint32_t batchIdx, std::uint8_t laneIdx) { return (batchIdx << 3) | (laneIdx & 0x7); };
-
         struct PhysicsBones {
             std::uint32_t numBones = 0;
 
             // 3 DOF
             std::vector<Vector> pos;                // world
+            std::vector<Vector> prevPos;                // world
             std::vector<Vector> pred; // world
             std::vector<Vector> vel;
 
@@ -130,6 +81,7 @@ namespace MXPBD {
             std::vector<Quaternion> rot;
             std::vector<Quaternion> prevRot;
             std::vector<Quaternion> predRot;
+            std::vector<Quaternion> backupRot;
             std::vector<Vector> angVel;
             std::vector<float> invInertia;
 
@@ -243,11 +195,6 @@ namespace MXPBD {
             std::vector<std::uint8_t> vertexCount;
             std::vector<std::uint8_t> edgeCount;
             std::vector<std::uint8_t> faceCount;
-            struct alignas(32) ConvexHullDataBatch {
-                float vX[COL_VERTEX_MAX], vY[COL_VERTEX_MAX], vZ[COL_VERTEX_MAX];
-                float eX[COL_EDGE_MAX], eY[COL_EDGE_MAX], eZ[COL_EDGE_MAX];
-                float fX[COL_FACE_MAX], fY[COL_FACE_MAX], fZ[COL_FACE_MAX];
-            };
             std::vector<ConvexHullDataBatch> convexHullData;
             std::vector<AABB> boundingAABB;
             struct ConvexHullCache {
@@ -260,6 +207,7 @@ namespace MXPBD {
             std::size_t collideMaxObserved = 0;
 
             struct alignas(64) CollisionCache {
+                float dx = 0.0f, dy = 0.0f, dz = 0.0f;
                 float nx = 0.0f, ny = 0.0f, nz = 0.0f;
                 float dtx = 0.0f, dty = 0.0f, dtz = 0.0f;
                 float maxDisp = 0.0f;
@@ -268,6 +216,7 @@ namespace MXPBD {
             std::vector<CollisionCache> collisionCache;
 
             std::vector<float> boundingSphere;
+            std::vector<Vector> boundingSphereOffset;
         };
         Colliders colliders;
         std::vector<std::uint32_t> collidersOrder;
@@ -278,7 +227,6 @@ namespace MXPBD {
         }
 
         struct LocalSpatialHash {
-            std::uint32_t tableSize = 1009;
             float invGridSize = 0.1f;
 
             std::vector<std::uint32_t> cellStart;
@@ -287,8 +235,8 @@ namespace MXPBD {
 
             inline void Init(const std::uint32_t totalColliders, const float newGridSize) {
                 invGridSize = 1.0f / newGridSize;
-                cellStart.resize(tableSize + 1, 0);
-                cellCount.resize(tableSize, 0);
+                cellStart.resize(HASH_TABLE_SIZE + 1, 0);
+                cellCount.resize(HASH_TABLE_SIZE, 0);
                 entries.resize(totalColliders * 2);
                 std::fill(cellCount.begin(), cellCount.end(), 0);
             }
@@ -298,7 +246,7 @@ namespace MXPBD {
                 v = XMVectorFloor(XMVectorAdd(v, XMVectorReplicate(0.25f)));
                 XMINT3 i3;
                 XMStoreSInt3(&i3, v);
-                return XXH32(&i3, sizeof(i3), 0) % tableSize;
+                return XXH32(&i3, sizeof(i3), 0) % HASH_TABLE_SIZE;
             }
             inline std::uint32_t HashWorldCoordsLow(const DirectX::XMVECTOR& p) const {
                 using namespace DirectX;
@@ -306,10 +254,11 @@ namespace MXPBD {
                 v = XMVectorFloor(XMVectorSubtract(v, XMVectorReplicate(0.25f)));
                 XMINT3 i3;
                 XMStoreSInt3(&i3, v);
-                return XXH32(&i3, sizeof(i3), 0) % tableSize;
+                return XXH32(&i3, sizeof(i3), 0) % HASH_TABLE_SIZE;
             }
         };
-        std::vector<LocalSpatialHash> objectHashes;
+        std::vector<LocalSpatialHash> objectHashesSmall;
+        std::vector<LocalSpatialHash> objectHashesLarge;
 
         DynamicAABBTree globalAABBTree;
         std::vector<std::uint32_t> objIdxToTreeNodeIdx;
@@ -322,11 +271,24 @@ namespace MXPBD {
         void SolveConstraints(const float deltaTime);
         void SolveCollisions(const float deltaTime);
         void UpdateBoneVelocity(const float deltaTime);
-        void ApplyToSkyrim(const float deltaTime);
+        void ApplyToSkyrim();
+
+        tbb::affinity_partitioner predictAffinity;
+        tbb::affinity_partitioner constraintsAffinity;
+        tbb::affinity_partitioner angularConstraintsAffinity;
+        tbb::affinity_partitioner updateVelocityAffinity;
 
         AABB GetObjectAABB(const std::uint32_t objIdx) const;
         std::vector<AABBPair> GetAABBPairs(const std::uint32_t objIdx);
-        bool CheckCollisionConvexHullVSConvexHull(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
+
+        using ConvexHullvsConvexHullFunc = bool(XPBDWorld::*)(const std::uint32_t, const std::uint32_t, ContactManifold&);
+        ConvexHullvsConvexHullFunc CheckCollision = nullptr;
+        bool ConvexHullvsConvexHull_avx(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
+        bool ConvexHullvsConvexHull_avx2(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
+        bool ConvexHullvsConvexHull_avx512(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
+
+        using ConvexHullvsSphereFunc = bool(XPBDWorld::*)(const std::uint32_t, const std::uint32_t, ContactManifold&);
+        bool ConvexHullvsSphereavx(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
 
         std::uint32_t AllocateBone();
         void ReserveBone(std::uint32_t n);
@@ -339,6 +301,7 @@ namespace MXPBD {
 
         void BuildConstraintColorGraph();
 
+        void ResetBone(const std::uint32_t bi);
         void Reset(const RE::FormID objectID);
         void RemoveCollider(RE::TESObjectREFR* object, const ObjectDatas::Root& targetRoot);
         void CleanPhysics(const std::unordered_set<CleanObject, CleanObjectHash>& cleanList);
