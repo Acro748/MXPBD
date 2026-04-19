@@ -729,10 +729,12 @@ namespace MXPBD
                     if (found == input.angularConstraints.end())
                         continue;
 
+                    const auto boneIt = input.bones.find(nodeName);
+                    if (boneIt == input.bones.end())
+                        continue;
                     physicsBones.advancedRotation[bi] = 1;
-                    const float boneMass = physicsBones.invMass[bi] > 0.0f ? 1.0f / physicsBones.invMass[bi] : 0.0f;
-                    if (boneMass > 0.0f && physicsBones.inertiaScale[bi] > 0.0f)
-                        physicsBones.invInertia[bi] = (boneMass * physicsBones.inertiaScale[bi]);
+                    if (boneIt->second.mass > 0.0f && boneIt->second.inertiaScale > 0.0f)
+                        physicsBones.invInertia[bi] = (boneIt->second.mass * boneIt->second.inertiaScale);
                     else
                         physicsBones.invInertia[bi] = 0.0f;
 
@@ -751,12 +753,15 @@ namespace MXPBD
                         const std::uint32_t anchBi = boneNameToIdx[found->second.anchorBoneNames[a]];
                         angularConstraints.anchIdx[ai] = anchBi;
 
-                        physicsBones.advancedRotation[anchBi] = 1;
-                        const float anchBoneMass = physicsBones.invMass[anchBi] > 0.0f ? 1.0f / physicsBones.invMass[anchBi] : 0.0f;
-                        if (anchBoneMass > 0.0f && physicsBones.inertiaScale[anchBi] > 0.0f)
-                            physicsBones.invInertia[anchBi] = (anchBoneMass * physicsBones.inertiaScale[anchBi]);
+                        const auto anchBoneIt = input.bones.find(found->second.anchorBoneNames[a]);
+                        if (anchBoneIt == input.bones.end())
+                            continue;
+
+                        physicsBones.advancedRotation[bi] = 1;
+                        if (anchBoneIt->second.mass > 0.0f && anchBoneIt->second.inertiaScale > 0.0f)
+                            physicsBones.invInertia[bi] = (anchBoneIt->second.mass * anchBoneIt->second.inertiaScale);
                         else
-                            physicsBones.invInertia[anchBi] = 0.0f;
+                            physicsBones.invInertia[bi] = 0.0f;
 
                         const Quaternion childRot = ToQuaternion(physicsBones.worldRot[bi]);
                         const Quaternion anchorRot = ToQuaternion(physicsBones.worldRot[anchBi]);
