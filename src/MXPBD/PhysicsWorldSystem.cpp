@@ -19,7 +19,7 @@ namespace MXPBD
 
     void XPBDWorldSystem::AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot)
     {
-        if (!object || !Mus::IsPlayer(object->formID))
+        if (!object/* || !Mus::IsPlayer(object->formID)*/)
             return;
         UpdateRawConvexHulls(object, nullptr);
         if (rootType == XPBDWorld::RootType::skeleton)
