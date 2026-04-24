@@ -31,8 +31,17 @@ namespace Mus {
         [[nodiscard]] inline auto GetLargeGridSize() const noexcept {
             return LargeGridSize;
         }
-        [[nodiscard]] inline auto GetSIMDType() const noexcept {
-            return SIMDType;
+        [[nodiscard]] inline auto GetRotationClampSpeed() const noexcept {
+            return RotationClampSpeed;
+        }
+        [[nodiscard]] inline auto GetCollisionConvergence() const noexcept {
+            return CollisionConvergence;
+        }
+        [[nodiscard]] inline auto GetGroundDetectRange() const noexcept {
+            return GroundDetectRange;
+        }
+        [[nodiscard]] inline auto GetGroundDetectQuality() const noexcept {
+            return GroundDetectQuality;
         }
         [[nodiscard]] inline auto GetValidBoneWeightThreshold() const noexcept {
             return ValidBoneWeightThreshold;
@@ -47,7 +56,10 @@ namespace Mus {
         std::uint8_t IterationMax = 5;
         float SmallGridSize = 30.0f;
         float LargeGridSize = 100.0f;
-        std::uint8_t SIMDType = 0;
+        float RotationClampSpeed = 0.12f;
+        float CollisionConvergence = 0.1f;
+        float GroundDetectRange = 25.0f;
+        std::uint8_t GroundDetectQuality = 30;
         float ValidBoneWeightThreshold = 0.0001f;
 
     public:

@@ -90,6 +90,11 @@ namespace Mus {
         bool hasDetached = false;
     };
 
+    struct Load3DEvent {
+        RE::TESObjectREFR* reference = nullptr;
+        RE::NiAVObject* loadedObject = nullptr;
+    };
+
 	struct PlayerCellChangeEvent
 	{
 		bool IsExterior = false;
@@ -101,6 +106,7 @@ namespace Mus {
 	extern EventDispatcherImpl<FacegenNiNodeEvent> g_facegenNiNodeEventDispatcher;
 	extern EventDispatcherImpl<ArmorAttachEvent> g_armorAttachEventDispatcher;
     extern EventDispatcherImpl<ArmorDetachEvent> g_armorDetachEventDispatcher;
+    extern EventDispatcherImpl<Load3DEvent> g_load3DEventDispatcher;
 	extern EventDispatcherImpl<PlayerCellChangeEvent> g_playerCellChangeEventDispatcher;
 
 	void hook();

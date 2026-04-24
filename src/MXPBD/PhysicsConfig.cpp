@@ -182,19 +182,19 @@ namespace MXPBD
                     {
                         const Vector p = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
                         const AABB vAABB(p, p);
-                        aabb.Merge(vAABB);
+                        aabb = aabb.Merge(vAABB);
                     }
-                    const Vector center = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(aabb.min, aabb.max), DirectX::XMVectorReplicate(0.5f));
+                    const Vector center = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(aabb.min, aabb.max), vHalf);
 
                     std::uint32_t bestV = 0;
-                    float maxDistSq = -1.0f;
+                    Vector maxDistSqV = DirectX::XMVectorReplicate(-1.0f);
                     for (std::uint32_t v = 0; v < COL_VERTEX_MAX; ++v)
                     {
                         const Vector p = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
-                        const float dSq = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(p, center)));
-                        if (dSq > maxDistSq)
+                        const Vector dSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(p, center));
+                        if (DirectX::XMVector3Less(maxDistSqV, dSq))
                         {
-                            maxDistSq = dSq;
+                            maxDistSqV = dSq;
                             bestV = v;
                         }
                     }
@@ -203,7 +203,7 @@ namespace MXPBD
                     for (std::uint8_t k = 1; k < maxToPick; ++k)
                     {
                         bestV = 0;
-                        maxDistSq = -1.0f;
+                        float maxDistSq = -1.0f;
 
                         for (std::uint32_t v = 0; v < COL_VERTEX_MAX; ++v)
                         {
@@ -300,17 +300,17 @@ namespace MXPBD
                     {
                         const Vector p = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
                         const AABB vAABB(p, p);
-                        aabb.Merge(vAABB);
+                        aabb = aabb.Merge(vAABB);
                     }
-                    const Vector center = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(aabb.min, aabb.max), DirectX::XMVectorReplicate(0.5f));
+                    const Vector center = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(aabb.min, aabb.max), vHalf);
 
                     std::uint32_t bestV = 0;
-                    float maxDistSq = -1.0f;
+                    Vector maxDistSq = vNegOne;
                     for (std::uint32_t v = 0; v < COL_VERTEX_MAX; ++v)
                     {
                         const Vector p = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
-                        const float dSq = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(p, center)));
-                        if (dSq > maxDistSq)
+                        const Vector dSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(p, center));
+                        if (DirectX::XMVector3Less(maxDistSq, dSq))
                         {
                             maxDistSq = dSq;
                             bestV = v;
@@ -321,22 +321,24 @@ namespace MXPBD
                     for (std::uint8_t k = 1; k < maxToPick; ++k)
                     {
                         bestV = 0;
-                        maxDistSq = -1.0f;
+                        maxDistSq = vNegOne;
 
                         for (std::uint32_t v = 0; v < COL_VERTEX_MAX; ++v)
                         {
                             if (std::find(selectedIdx.begin(), selectedIdx.end(), v) != selectedIdx.end())
                                 continue;
 
-                            float minDistToSelected = FLT_MAX;
+                            Vector minDistToSelected = vInf;
                             for (std::uint32_t sel : selectedIdx)
                             {
-                                float dSq = (RE::NiPoint3(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v]) - RE::NiPoint3(chdbIt->second.vX[sel], chdbIt->second.vY[sel], chdbIt->second.vZ[sel])).SqrLength();
-                                if (dSq < minDistToSelected)
+                                const Vector av = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
+                                const Vector bv = DirectX::XMVectorSet(chdbIt->second.vX[sel], chdbIt->second.vY[sel], chdbIt->second.vZ[sel], 0.0f);
+                                const Vector dSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(av, bv));
+                                if (DirectX::XMVector3Less(dSq, minDistToSelected))
                                     minDistToSelected = dSq;
                             }
 
-                            if (minDistToSelected > maxDistSq)
+                            if (DirectX::XMVector3Less(maxDistSq, minDistToSelected))
                             {
                                 maxDistSq = minDistToSelected;
                                 bestV = v;
@@ -396,9 +398,8 @@ namespace MXPBD
         CreateVolume(rootNode, input, a_rawConvexHullDatas);
     }
 
-    PhysicsInput GetPhysicsInput(const std::string& file)
+    bool GetPhysicsInput(const std::string& file, PhysicsInput& input)
     {
-        PhysicsInput input;
         tinyxml2::XMLDocument doc;
         std::string lfile = file;
         std::transform(lfile.begin(), lfile.end(), lfile.begin(), ::tolower);
@@ -413,23 +414,26 @@ namespace MXPBD
         case tinyxml2::XML_ERROR_FILE_COULD_NOT_BE_OPENED:
         case tinyxml2::XML_ERROR_FILE_READ_ERROR:
             logger::error("{} : Unable to open the file ({})", file, std::to_underlying(error));
-            return input;
+            return false;
             break;
         default:
             logger::error("{} : The file's xml format is invalid ({})", file, std::to_underlying(error));
-            return input;
+            return false;
             break;
         };
 
         tinyxml2::XMLElement* root = doc.RootElement();
-        return GetPhysicsInput(root, file);
+        return GetPhysicsInput(root, file, input);
     }
 
-    PhysicsInput GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file)
+    bool GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input)
     {
-        PhysicsInput input;
         if (!root)
-            return input;
+        {
+            logger::error("{} : Unable to load root", file);
+            return false;
+        }
+        input.infos.push_back({false, file});
 
         PhysicsInput::Bone defaultBone;
         struct ConstraintData {
@@ -466,7 +470,8 @@ namespace MXPBD
                         boneDefaultElem->QueryFloatAttribute("mass", &defaultBone.mass);
                         boneDefaultElem->QueryFloatAttribute("damping", &defaultBone.damping);
                         boneDefaultElem->QueryFloatAttribute("inertiaScale", &defaultBone.inertiaScale);
-                        boneDefaultElem->QueryFloatAttribute("rotRatio", &defaultBone.rotRatio);
+                        boneDefaultElem->QueryFloatAttribute("restitution", &defaultBone.restitution);
+                        boneDefaultElem->QueryFloatAttribute("rotationRatio", &defaultBone.rotationRatio);
                         boneDefaultElem->QueryFloatAttribute("gravity", &defaultBone.gravity);
                         boneDefaultElem->QueryFloatAttribute("linearRotTorque", &defaultBone.linearRotTorque);
                     }
@@ -484,11 +489,12 @@ namespace MXPBD
                     }
                     else if (boneDefaultElemName == "collider")
                     {
-                        float colComp = defaultBone.colComp;
-                        boneDefaultElem->QueryFloatAttribute("margin", &defaultBone.colMargin);
-                        boneDefaultElem->QueryFloatAttribute("friction", &defaultBone.colFriction);
-                        boneDefaultElem->QueryFloatAttribute("softness", &colComp);
-                        defaultBone.colComp = colComp * COMPLIANCE_SCALE;
+                        float collisionCompliance = defaultBone.collisionCompliance;
+                        boneDefaultElem->QueryFloatAttribute("margin", &defaultBone.collisionMargin);
+                        boneDefaultElem->QueryFloatAttribute("friction", &defaultBone.collisionFriction);
+                        boneDefaultElem->QueryFloatAttribute("rotationBias", &defaultBone.collisionRotationBias);
+                        boneDefaultElem->QueryFloatAttribute("softness", &collisionCompliance);
+                        defaultBone.collisionCompliance = collisionCompliance;
                     }
                     boneDefaultElem = boneDefaultElem->NextSiblingElement();
                 }
@@ -519,7 +525,8 @@ namespace MXPBD
                         boneElem->QueryFloatAttribute("mass", &newBone.mass);
                         boneElem->QueryFloatAttribute("damping", &newBone.damping);
                         boneElem->QueryFloatAttribute("inertiaScale", &newBone.inertiaScale);
-                        boneElem->QueryFloatAttribute("rotRatio", &newBone.rotRatio);
+                        boneElem->QueryFloatAttribute("restitution", &newBone.restitution);
+                        boneElem->QueryFloatAttribute("rotationRatio", &newBone.rotationRatio);
                         boneElem->QueryFloatAttribute("gravity", &newBone.gravity);
                         boneElem->QueryFloatAttribute("linearRotTorque", &newBone.linearRotTorque);
                     }
@@ -537,17 +544,19 @@ namespace MXPBD
                     }
                     else if (boneElemName == "collider")
                     {
-                        float colComp = newBone.colComp;
-                        boneElem->QueryFloatAttribute("margin", &newBone.colMargin);
-                        boneElem->QueryFloatAttribute("friction", &newBone.colFriction);
-                        boneElem->QueryFloatAttribute("softness", &colComp);
-                        newBone.colComp = colComp * COMPLIANCE_SCALE;
+                        float collisionCompliance = newBone.collisionCompliance;
+                        boneElem->QueryFloatAttribute("margin", &newBone.collisionMargin);
+                        boneElem->QueryFloatAttribute("friction", &newBone.collisionFriction);
+                        boneElem->QueryFloatAttribute("rotationBias", &newBone.collisionRotationBias);
+                        boneElem->QueryFloatAttribute("softness", &collisionCompliance);
+                        newBone.collisionCompliance = collisionCompliance;
                     }
                     boneElem = boneElem->NextSiblingElement();
                 }
-                logger::debug("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / rotRatio {} / gravity {} / linearRotTorque {}", file, name, newBone.mass, newBone.damping, newBone.inertiaScale, newBone.rotRatio, newBone.gravity, newBone.linearRotTorque);
+                logger::debug("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / restitution {} / rotationRatio {} / gravity {} / linearRotTorque {}", file, name, newBone.mass, newBone.damping, newBone.inertiaScale, newBone.restitution, newBone.rotationRatio, newBone.gravity, newBone.linearRotTorque);
                 logger::debug("{} : bone offset {} - pos {}{}{}{}", file, name, newBone.offset, newBone.isParticle ? " /" : "", newBone.isParticle ? " target " : "", newBone.isParticle ? newBone.parentBoneName : "");
-                logger::debug("{} : bone collider {} - margin {} / friction {} / softness {}", file, name, newBone.colMargin, newBone.colFriction, newBone.colComp);
+                logger::debug("{} : bone collider {} - margin {} / friction {} / rotationBias {} / softness {}", file, name, newBone.collisionMargin, newBone.collisionFriction, newBone.collisionRotationBias, newBone.collisionCompliance);
+                newBone.collisionCompliance *= COMPLIANCE_SCALE;
                 input.bones.emplace(name, newBone);
             }
             else if (elemName == "no-collide" || elemName == "nocollide")
@@ -573,8 +582,6 @@ namespace MXPBD
                     {
                         consElem->QueryFloatAttribute("squish", &defaultLinearConstraint.complianceSquish);
                         consElem->QueryFloatAttribute("stretch", &defaultLinearConstraint.complianceStretch);
-                        defaultLinearConstraint.complianceSquish *= COMPLIANCE_SCALE;
-                        defaultLinearConstraint.complianceStretch *= COMPLIANCE_SCALE;
                     }
                     else if (consElemName == "limit")
                     {
@@ -609,8 +616,6 @@ namespace MXPBD
                     {
                         consElem->QueryFloatAttribute("squish", &newCons.complianceSquish);
                         consElem->QueryFloatAttribute("stretch", &newCons.complianceStretch);
-                        newCons.complianceSquish *= COMPLIANCE_SCALE;
-                        newCons.complianceStretch *= COMPLIANCE_SCALE;
                     }
                     else if (consElemName == "limit")
                     {
@@ -633,11 +638,11 @@ namespace MXPBD
                     continue;
                 }
                 cons.anchorBoneNames.push_back(B);
-                cons.complianceSquish.push_back(newCons.complianceSquish);
-                cons.complianceStretch.push_back(newCons.complianceStretch);
+                cons.complianceSquish.push_back(newCons.complianceSquish * COMPLIANCE_SCALE);
+                cons.complianceStretch.push_back(newCons.complianceStretch * COMPLIANCE_SCALE);
                 cons.squishLimit.push_back(newCons.squishLimit);
                 cons.stretchLimit.push_back(newCons.stretchLimit);
-                cons.angularLimit.push_back(newCons.angularLimit);
+                cons.angularLimit.push_back(DirectX::XMConvertToRadians(newCons.angularLimit));
                 cons.squishDamping.push_back(newCons.squishDamping);
                 cons.stretchDamping.push_back(newCons.stretchDamping);
                 logger::debug("{} : bone add anchor {}({}|{}) - complianceSquish {} / complianceStretch {} / squishLimit {} / stretchLimit {} / angularLimit {} / squishDamping {} / stretchDamping {}", file, A, B, anchorIdx, newCons.complianceSquish, newCons.complianceStretch, newCons.squishLimit, newCons.stretchLimit, newCons.angularLimit, newCons.squishDamping, newCons.stretchDamping);
@@ -652,7 +657,6 @@ namespace MXPBD
                     if (consElemName == "compliance")
                     {
                         consElem->QueryFloatAttribute("value", &defaultAngularConstraint.compliance);
-                        defaultAngularConstraint.compliance *= COMPLIANCE_SCALE;
                     }
                     else if (consElemName == "limit")
                     {
@@ -683,7 +687,6 @@ namespace MXPBD
                     if (consElemName == "compliance")
                     {
                         consElem->QueryFloatAttribute("value", &newCons.compliance);
-                        newCons.compliance *= COMPLIANCE_SCALE;
                     }
                     else if (consElemName == "limit")
                     {
@@ -703,19 +706,18 @@ namespace MXPBD
                     continue;
                 }
                 cons.anchorBoneNames.push_back(B);
-                cons.compliance.push_back(newCons.compliance);
-                cons.limit.push_back(newCons.limit);
+                cons.compliance.push_back(newCons.compliance * COMPLIANCE_SCALE);
+                cons.limit.push_back(DirectX::XMConvertToRadians(newCons.limit));
                 cons.damping.push_back(newCons.damping);
                 logger::debug("{} : bone add anchor {}({}|{}) - compliance {} / limit {} / damping {}", file, A, B, anchorIdx, newCons.compliance, newCons.limit, newCons.damping);
             }
             elem = elem->NextSiblingElement();
         }
-        return input;
+        return true;
     }
 
-    PhysicsInput ConvertSMPConfig(const std::string& file)
+    bool ConvertSMPConfig(const std::string& file, PhysicsInput& input)
     {
-        PhysicsInput input;
         tinyxml2::XMLDocument doc;
         std::string lfile = file;
         std::transform(lfile.begin(), lfile.end(), lfile.begin(), ::tolower);
@@ -730,160 +732,33 @@ namespace MXPBD
         case tinyxml2::XML_ERROR_FILE_COULD_NOT_BE_OPENED:
         case tinyxml2::XML_ERROR_FILE_READ_ERROR:
             logger::error("{} : Unable to open the file ({})", file, std::to_underlying(error));
-            return input;
+            return false;
             break;
         default:
             logger::error("{} : The file's xml format is invalid ({})", file, std::to_underlying(error));
-            return input;
+            return false;
             break;
         };
 
         tinyxml2::XMLElement* root = doc.RootElement();
-        return ConvertSMPConfig(root, file);
+        return ConvertSMPConfig(root, file, input);
     }
-    PhysicsInput ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file)
+    bool ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input)
     {
-        PhysicsInput input;
         if (!root)
-            return input;
-
-        std::unordered_map<std::string, PhysicsInput::Bone> boneTemplates;
-        struct SMPConstraintState
         {
-            float linearStiffness[3] = {1.0f, 1.0f, 1.0f};
-            float linearLowerLimit[3] = {0.0f, 0.0f, 0.0f};
-            float linearUpperLimit[3] = {0.0f, 0.0f, 0.0f};
-            float angularUpperLimit[3] = {0.0f, 0.0f, 0.0f};
-            float linearDamping[3] = {0.0f, 0.0f, 0.0f};
-        };
-        std::unordered_map<std::string, SMPConstraintState> constraintTemplates;
-
-        auto ParseXYZ = [](tinyxml2::XMLElement* elem, float out[3]) {
-            if (!elem || !elem->GetText())
-                return false;
-            std::stringstream ss(elem->GetText());
-            return (ss >> out[0] >> out[1] >> out[2]) ? true : false;
-        };
-        auto ParseBoneElements = [&](tinyxml2::XMLElement* node, PhysicsInput::Bone& boneData) {
-            tinyxml2::XMLElement* child = node->FirstChildElement();
-            while (child)
-            {
-                std::string name = child->Name();
-                if (name == "mass")
-                {
-                    child->QueryFloatText(&boneData.mass);
-                }
-                else if (name == "linearDamping")
-                {
-                    child->QueryFloatText(&boneData.damping);
-                }
-                else if (name == "friction")
-                {
-                    child->QueryFloatText(&boneData.colFriction);
-                }
-                else if (name == "gravity-factor")
-                {
-                    child->QueryFloatText(&boneData.gravity);
-                }
-                else if (name == "inertia")
-                {
-                    boneData.inertiaScale = 0.1f;
-                }
-                child = child->NextSiblingElement();
-            }
-        };
-        auto StiffnessToCompliance = [](float stiffness) {
-            return (stiffness > FloatPrecision) ? (1.0f / stiffness) : 0.0f;
-        };
-        auto ParseConstraintElements = [&](tinyxml2::XMLElement* node, SMPConstraintState& state) {
-            tinyxml2::XMLElement* child = node->FirstChildElement();
-            while (child)
-            {
-                /*std::string name = child->Name();
-                if (name == "linearStiffness")
-                    ParseXYZ(child, state.linearStiffness);
-                else if (name == "linearLowerLimit")
-                    ParseXYZ(child, state.linearLowerLimit);
-                else if (name == "linearUpperLimit")
-                    ParseXYZ(child, state.linearUpperLimit);
-                else if (name == "angularUpperLimit")
-                    ParseXYZ(child, state.angularUpperLimit);
-                else if (name == "linearDamping")
-                    ParseXYZ(child, state.linearDamping);*/
-                child = child->NextSiblingElement();
-            }
-        };
-
-        tinyxml2::XMLElement* elem = root->FirstChildElement();
-        while (elem)
-        {
-            std::string nodeName = elem->Name();
-            if (nodeName == "bone-default")
-            {
-                std::string name = elem->Attribute("name") ? elem->Attribute("name") : "";
-                std::string extends = elem->Attribute("extends") ? elem->Attribute("extends") : "";
-
-                PhysicsInput::Bone bData = boneTemplates[extends];
-                ParseBoneElements(elem, bData);
-                boneTemplates[name] = bData;
-            }
-            else if (nodeName == "bone")
-            {
-                std::string name = elem->Attribute("name") ? elem->Attribute("name") : "";
-                std::string tmpl = elem->Attribute("template") ? elem->Attribute("template") : "";
-
-                if (!name.empty())
-                {
-                    PhysicsInput::Bone bData = boneTemplates[tmpl];
-                    ParseBoneElements(elem, bData);
-                    input.bones[name] = bData;
-                }
-            }
-            else if (nodeName == "generic-constraint-default")
-            {
-                std::string name = elem->Attribute("name") ? elem->Attribute("name") : "";
-                std::string extends = elem->Attribute("extends") ? elem->Attribute("extends") : "";
-
-                SMPConstraintState cState = constraintTemplates[extends];
-                ParseConstraintElements(elem, cState);
-                constraintTemplates[name] = cState;
-            }
-            else if (nodeName == "generic-constraint")
-            {
-                std::string bodyA = elem->Attribute("bodyA") ? elem->Attribute("bodyA") : "";
-                std::string bodyB = elem->Attribute("bodyB") ? elem->Attribute("bodyB") : "";
-                std::string tmpl = elem->Attribute("template") ? elem->Attribute("template") : "";
-
-                if (!bodyA.empty() && !bodyB.empty())
-                {
-                    SMPConstraintState cState = constraintTemplates[tmpl];
-                    ParseConstraintElements(elem, cState);
-
-                    auto& constraintGroup = input.constraints[bodyB];
-
-                    constraintGroup.anchorBoneNames.push_back(bodyA);
-
-                    float compliance = 10.0f;
-                    constraintGroup.complianceSquish.push_back(compliance);
-                    constraintGroup.complianceStretch.push_back(compliance);
-
-                    constraintGroup.squishLimit.push_back(0);
-                    constraintGroup.stretchLimit.push_back(0);
-                    constraintGroup.angularLimit.push_back(0);
-
-                    constraintGroup.squishDamping.push_back(0);
-                    constraintGroup.stretchDamping.push_back(0);
-                }
-            }
-
-            elem = elem->NextSiblingElement();
+            logger::error("{} : Unable to load root", file);
+            return false;
         }
-        return input;
+        input.infos.push_back({true, file});
+
+        return true;
     }
 
     void FixBoneName(PhysicsInput& input, const RenameStringMap& map)
     {
         PhysicsInput fixedInput;
+        fixedInput.infos = input.infos;
         for (auto& bone : input.bones)
         {
             if (!bone.second.parentBoneName.empty())

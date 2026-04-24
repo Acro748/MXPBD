@@ -96,6 +96,8 @@ namespace MXPBD
             a_convexHullDataBatch.vY[v] = p.y;
             a_convexHullDataBatch.vZ[v] = p.z;
         }
+        a_convexHullDataBatch.vertexCount = vCount;
+
         {
             const float lastVX = a_convexHullDataBatch.vX[vCount - 1];
             const float lastVY = a_convexHullDataBatch.vY[vCount - 1];
@@ -174,19 +176,20 @@ namespace MXPBD
                 {
                     finalEdges.push_back(te.v);
                 }
+            }
+            a_convexHullDataBatch.edgeCount = static_cast<std::uint8_t>(finalEdges.size());
 
-                if (finalEdges.empty())
-                {
-                    finalEdges.push_back({1.0f, 0.0f, 0.0f});
-                }
+            if (finalEdges.empty())
+            {
+                finalEdges.push_back({1.0f, 0.0f, 0.0f});
+            }
 
-                for (std::uint8_t e = 0; e < COL_EDGE_MAX; ++e)
-                {
-                    const std::uint8_t fe = (e < finalEdges.size()) ? e : 0;
-                    a_convexHullDataBatch.eX[e] = finalEdges[fe].x;
-                    a_convexHullDataBatch.eY[e] = finalEdges[fe].y;
-                    a_convexHullDataBatch.eZ[e] = finalEdges[fe].z;
-                }
+            for (std::uint8_t e = 0; e < COL_EDGE_MAX; ++e)
+            {
+                const std::uint8_t fe = (e < finalEdges.size()) ? e : 0;
+                a_convexHullDataBatch.eX[e] = finalEdges[fe].x;
+                a_convexHullDataBatch.eY[e] = finalEdges[fe].y;
+                a_convexHullDataBatch.eZ[e] = finalEdges[fe].z;
             }
         }
 
@@ -210,8 +213,6 @@ namespace MXPBD
                 const RE::NiPoint3 edge2 = v2 - v0;
 
                 RE::NiPoint3 n = edge2.Cross(edge1);
-                n.Unitize();
-
                 const float lenSq = n.SqrLength();
                 if (lenSq < FloatPrecision)
                     continue;
@@ -235,6 +236,7 @@ namespace MXPBD
                     finalFaces.push_back(n);
                 }
             }
+            a_convexHullDataBatch.faceCount = static_cast<std::uint8_t>(finalFaces.size());
 
             if (finalFaces.empty())
             {

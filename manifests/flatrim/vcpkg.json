@@ -1,0 +1,15 @@
+{
+  "name": "flatrim",
+  "dependencies": [
+    "commonlibsse-ng-flatrim",
+    "xbyak",
+    "detours",
+    "tinyxml2",
+    "magic-enum",
+    "xxhash",
+    "meshoptimizer",
+    "unordered-dense",
+    "tbb"
+  ],
+  "builtin-baseline": "4b77da7fed37817f124936239197833469f1b9a8"
+}

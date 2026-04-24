@@ -13,6 +13,7 @@ namespace Mus {
 	EventDispatcherImpl<FacegenNiNodeEvent> g_facegenNiNodeEventDispatcher;
 	EventDispatcherImpl<ArmorAttachEvent> g_armorAttachEventDispatcher;
 	EventDispatcherImpl<ArmorDetachEvent> g_armorDetachEventDispatcher;
+    EventDispatcherImpl<Load3DEvent> g_load3DEventDispatcher;
 	EventDispatcherImpl<PlayerCellChangeEvent> g_playerCellChangeEventDispatcher;
 
 	typedef void (*_onFaceGen)(RE::BSFaceGenNiNode*, RE::NiNode*, RE::BSGeometry*, RE::BSTriShape*);
@@ -129,6 +130,26 @@ namespace Mus {
 		NullSubOrig = trampoline.write_call<5>(GameLoopFunction.address() + GameLoopFunctionOffset.offset(), onNullSub);
 	}
 
+    typedef RE::NiAVObject* (*_Load3D)(RE::TESObjectREFR*, bool);
+    _Load3D Load3DOrig = nullptr;
+	RE::NiAVObject* __fastcall onLoad3D(RE::TESObjectREFR* reference, bool backgroundLoad)
+	{
+		auto result = Load3DOrig(reference, backgroundLoad);
+		if (result)
+		{
+			Load3DEvent e;
+			e.reference = reference;
+			e.loadedObject = result;
+			g_load3DEventDispatcher.dispatch(e);
+		}
+		return result;
+    }
+	void hookLoad3D()
+	{
+        REL::Relocation<std::uintptr_t> vtbl(RE::VTABLE_TESObjectREFR[0]);
+        Load3DOrig = reinterpret_cast<_Load3D>(vtbl.write_vfunc(0x6A, onLoad3D));
+    }
+
 	void fixFaceGenBoneLimit()
     {
         constexpr REL::VariantID BSFaceGenSingleNiNodeFunction(26406, 26987, 0x003E81B0);
@@ -201,5 +222,7 @@ namespace Mus {
 		auto& trampoline = SKSE::GetTrampoline();
         SKSE::AllocTrampoline(14);
 		hookEngineTrampoline(trampoline);
+
+		//hookLoad3D();
 	}
 }

@@ -4,10 +4,15 @@ message("Using toolchain file ${CMAKE_TOOLCHAIN_FILE}.")
 ########################################################################################################################
 ## Define project
 ########################################################################################################################
+if(NOT ENABLE_SKYRIM_VR)
+    set(TARGET_DESC "SSE & AE")
+else()
+    set(TARGET_DESC "VR")
+endif()
 project(
         MXPBD
         VERSION 0.1.0
-        DESCRIPTION "Mu Extended Position Based Dynamics by Acro"
+        DESCRIPTION "MXPBD ${TARGET_DESC} (${SIMD_LEVEL})"
         LANGUAGES CXX
 )
 set(CMAKE_CXX_STANDARD 23)
@@ -49,8 +54,6 @@ set(sources
         src/MXPBD/PhysicsWorldSystem.cpp
         src/MXPBD/PhysicsWorldUpdater.cpp
         src/MXPBD/ThreadPool.cpp
-        src/MXPBD/SIMD_avx2.cpp
-        src/MXPBD/SIMD_avx512.cpp
         src/Command.cpp
         src/Condition.cpp
         src/Config.cpp
@@ -98,6 +101,17 @@ target_compile_definitions(
         UNICODE
 )
 
+if(SIMD_LEVEL STREQUAL "AVX512")
+    target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX512)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE AVX512)
+elseif(SIMD_LEVEL STREQUAL "AVX2")
+    target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX2)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE AVX2)
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE AVX)
+endif()
+
 target_include_directories(
     ${PROJECT_NAME}
     PRIVATE
@@ -138,15 +152,7 @@ target_precompile_headers(
     PRIVATE
         include/PCH.h
 )
-set_source_files_properties(
-    src/MXPBD/SIMD_avx2.cpp
-    PROPERTIES COMPILE_OPTIONS "/arch:AVX2"
-)
-set_source_files_properties(
-    src/MXPBD/SIMD_avx512.cpp
-    PROPERTIES COMPILE_OPTIONS "/arch:AVX512"
-)
-target_compile_options(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Release>:/sdl;/utf-8;/Zi;/permissive-;/Zc:preprocessor;/Zc:inline;/JMC-;/O2;/Ob3;/arch:AVX>")
+target_compile_options(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Release>:/sdl;/utf-8;/Zi;/permissive-;/Zc:preprocessor;/Zc:inline;/JMC-;/O2;/Ob3;>")
 target_link_options(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Release>:/INCREMENTAL:NO;/OPT:REF;/OPT:ICF;/DEBUG:FULL>")
 
 install(TARGETS ${PROJECT_NAME}
@@ -162,12 +168,29 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
     set(BUILD_NAME "Release")
 endif()
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
+if(NOT ENABLE_SKYRIM_VR)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}${SIMD_LEVEL}/")
+else()
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}${SIMD_LEVEL}VR/")
+endif()
+
+if(NOT ENABLE_SKYRIM_VR)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}${SIMD_LEVEL}/")
+else()
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}${SIMD_LEVEL}VR/")
+endif()
+
+if (NOT ENABLE_SKYRIM_VR)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}${SIMD_LEVEL}/")
+else()
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}${SIMD_LEVEL}VR/")
+endif()
 
 file(GLOB_RECURSE OUTPUT_DLLS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.dll")
 file(GLOB_RECURSE OUTPUT_PDBS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pdb")

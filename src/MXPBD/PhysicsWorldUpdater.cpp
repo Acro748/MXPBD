@@ -129,18 +129,18 @@ namespace MXPBD
             auto actor = GetActor(t.first);
             if (!actor || !actor->loadedData || !actor->loadedData->data3D)
                 continue;
-            const auto bitElements = GetBitElements(t.second);
-            for (auto e : bitElements)
+            std::uint32_t mask = t.second;
+            while (mask)
             {
-                AddClothPhysicsToWorld(actor, actor->loadedData->data3D->AsNode(), e);
+                std::uint32_t k = _tzcnt_u32(mask);
+                mask &= mask - 1;
+                AddClothPhysicsToWorld(actor, actor->loadedData->data3D->AsNode(), k);
             }
         }
     }
 
     void XPBDWorldUpdater::onEvent(const Mus::FrameEvent& e)
     {
-        if (Mus::IsGamePaused.load())
-            return;
         RunSkeletonQueue();
         RunFacegenQueue();
         RunArmorQueue();

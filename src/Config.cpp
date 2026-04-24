@@ -119,9 +119,21 @@ namespace Mus {
                 {
                     LargeGridSize = GetFloatValue(variableValue);
                 }
-                else if (variableName == "SIMDType")
+                else if (variableName == "RotationClampSpeed")
                 {
-                    SIMDType = GetUIntValue(variableValue);
+                    RotationClampSpeed = GetFloatValue(variableValue);
+                }
+                else if (variableName == "CollisionConvergence")
+                {
+                    CollisionConvergence = GetFloatValue(variableValue);
+                }
+                else if (variableName == "GroundDetectRange")
+                {
+                    GroundDetectRange = GetFloatValue(variableValue);
+                }
+                else if (variableName == "GroundDetectQuality")
+                {
+                    GroundDetectQuality = GetUIntValue(variableValue);
                 }
                 else if (variableName == "ValidBoneWeightThreshold")
                 {
@@ -184,7 +196,8 @@ namespace Mus {
                     ConditionRoot->QueryIntAttribute("priority", &condition.Priority);
                     logger::info("{} : priority {}", filename, condition.Priority);
 
-                    condition.setting = MXPBD::GetPhysicsInput(root, filename);
+                    if (!MXPBD::GetPhysicsInput(root, filename, condition.setting))
+                        return;
                     ConditionManager::GetSingleton().RegisterCondition(condition);
                 }
             },

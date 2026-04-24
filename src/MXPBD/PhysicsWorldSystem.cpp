@@ -5,11 +5,13 @@ namespace MXPBD
     bool IsHDTSMPEnabled = false;
     void XPBDWorldSystem::Init()
     {
-        physicsWorld = std::make_unique<XPBDWorld>(
-            Mus::Config::GetSingleton().GetIterationMax(), 
-            Mus::Config::GetSingleton().GetSmallGridSize(), 
-            Mus::Config::GetSingleton().GetLargeGridSize(),
-            GetSIMDType(false, Mus::Config::GetSingleton().GetSIMDType() + 1));
+        physicsWorld = std::make_unique<XPBDWorld>();
+        physicsWorld->SetIteration(Mus::Config::GetSingleton().GetIterationMax());
+        physicsWorld->SetGridSize(Mus::Config::GetSingleton().GetSmallGridSize(), Mus::Config::GetSingleton().GetLargeGridSize());
+        physicsWorld->SetRotationClampSpeed(Mus::Config::GetSingleton().GetRotationClampSpeed());
+        physicsWorld->SetCollisionConvergence(Mus::Config::GetSingleton().GetCollisionConvergence());
+        physicsWorld->SetGroundDetectRange(Mus::Config::GetSingleton().GetGroundDetectRange());
+        physicsWorld->SetGroundDetectQuality(Mus::Config::GetSingleton().GetGroundDetectQuality());
 
         Mus::g_frameEventDispatcher.addListener(this);
         Mus::g_facegenNiNodeEventDispatcher.addListener(this);
@@ -17,9 +19,9 @@ namespace MXPBD
         Mus::g_armorDetachEventDispatcher.addListener(this);
     }
 
-    void XPBDWorldSystem::AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot)
+    void XPBDWorldSystem::AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider)
     {
-        if (!object/* || !Mus::IsPlayer(object->formID)*/)
+        if (!object)
             return;
         UpdateRawConvexHulls(object, nullptr);
         if (rootType == XPBDWorld::RootType::skeleton)
@@ -37,7 +39,8 @@ namespace MXPBD
         else if (rootType == XPBDWorld::RootType::weapon)
         {
         }
-        AddColliders(object, rootNode);
+        if (isAddCollider)
+            AddColliders(object, rootNode);
     }
 
     void XPBDWorldSystem::UpdatePhysicsSetting(RE::TESObjectREFR* object, PhysicsInput input)
@@ -71,7 +74,7 @@ namespace MXPBD
 
     void XPBDWorldSystem::Reset() const
     {
-        physicsWorld->Reset();
+        physicsWorld->ResetAll();
     }
 
     void XPBDWorldSystem::Reset(RE::TESObjectREFR* object) const
@@ -346,15 +349,18 @@ namespace MXPBD
 
         if (origRootNode)
         {
-            if (std::string physicsPath = GetPhysicsInputPath(origRootNode); !physicsPath.empty())
-                input = GetPhysicsInput(physicsPath);
-            else if (std::string smpConfigPath = GetSMPConfigPath(origRootNode); !smpConfigPath.empty())
-                input = ConvertSMPConfig(smpConfigPath);
+            if (std::string physicsPath = GetPhysicsInputPath(origRootNode); physicsPath.empty() || !GetPhysicsInput(physicsPath, input))
+            {
+                if (std::string smpConfigPath = GetSMPConfigPath(origRootNode); !smpConfigPath.empty())
+                    ConvertSMPConfig(smpConfigPath, input);
+            }
         }
 
-        auto& skinInstance = geo->skinInstance;
+        auto& skinInstance = geo->GetGeometryRuntimeData().skinInstance;
         if (!skinInstance || !skinInstance->skinData)
             return;
+
+        auto origSkinInstance = origGeom ? origGeom->GetGeometryRuntimeData().skinInstance.get() : nullptr;
 
         bool hasMerged = false;
         for (std::uint32_t i = 0; i < skinInstance->skinData->bones; ++i)
@@ -367,9 +373,9 @@ namespace MXPBD
 
             if (boneName.empty())
             {
-                if (origGeom && origGeom->skinInstance && origGeom->skinInstance->bones && origGeom->skinInstance->bones[i])
+                if (origSkinInstance && origSkinInstance->bones && origSkinInstance->bones[i])
                 {
-                    boneName = origGeom->skinInstance->bones[i]->name.c_str();
+                    boneName = origGeom->GetGeometryRuntimeData().skinInstance->bones[i]->name.c_str();
                 }
                 else if (skinInstance->bones && skinInstance->bones[i])
                 {
@@ -434,7 +440,7 @@ namespace MXPBD
             }
         }
 
-        geo->skinInstance->rootParent = facegenRoot;
+        skinInstance->rootParent = facegenRoot;
     }
 
     void XPBDWorldSystem::RemoveMergedNode(RE::NiNode* a_root, std::string_view a_prefix) const
@@ -656,6 +662,71 @@ namespace MXPBD
         physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::collider, newInput);
     }
 
+    void XPBDWorldSystem::ReloadPhysics(RE::TESObjectREFR* object)
+    {
+        if (!object || !object->loadedData || !object->loadedData->data3D)
+            return;
+        auto rootNode = object->loadedData->data3D->AsNode();
+        if (!rootNode)
+            return;
+
+        std::vector<ObjectData::RawData> copyRawDatas;
+        {
+            std::unique_lock ul(objectDatasLock);
+            const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(object);
+            if (!objData)
+                return;
+            std::lock_guard lg(objData->lock);
+            ul.unlock();
+            for (auto& rawData : objData->rawDatas)
+            {
+                if (rawData.input.infos.empty())
+                    continue;
+                bool firstRead = true;
+                for (const auto& info : rawData.input.infos)
+                {
+                    if (info.inputPath.empty())
+                        continue;
+                    PhysicsInput newInput;
+                    if (!info.isSMPConfig)
+                    {
+                        if (!GetPhysicsInput(info.inputPath, newInput))
+                            continue;
+                    }
+                    else
+                    {
+                        if (!ConvertSMPConfig(info.inputPath, newInput))
+                            continue;
+                    }
+                    if (firstRead)
+                    {
+                        firstRead = false;
+                        rawData.input = newInput;
+                    }
+                    else
+                    {
+                        rawData.input.infos.append_range(newInput.infos);
+                        rawData.input.bones.insert_range(newInput.bones);
+                        rawData.input.constraints.insert_range(newInput.constraints);
+                        rawData.input.angularConstraints.insert_range(newInput.angularConstraints);
+                        for (const auto& noColBones : newInput.convexHullColliders.noCollideBones)
+                        {
+                            rawData.input.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
+                        }
+                    }
+                    FixBoneName(rawData.input, objData->renameMap);
+                }
+                ObjectData::RawData copyRawData = {.rootType = rawData.rootType, .bipedSlot = rawData.bipedSlot};
+                copyRawDatas.push_back(copyRawData);
+            }
+        }
+        physicsWorld->RemovePhysics(object->formID);
+        for (std::uint32_t i = 0; i < copyRawDatas.size(); ++i)
+        {
+            AddPhysics(object, rootNode, copyRawDatas[i].rootType, copyRawDatas[i].bipedSlot, (copyRawDatas.size() - 1ull) == i);
+        }
+    }
+
     void XPBDWorldSystem::UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode)
     {
         if (!object)
@@ -862,6 +933,7 @@ namespace MXPBD
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
                 if (it != objData->rawDatas.end())
                 {
+                    it->input.infos.append_range(newInput.infos);
                     it->input.bones.insert_range(newInput.bones);
                     it->input.constraints.insert_range(newInput.constraints);
                     it->input.angularConstraints.insert_range(newInput.angularConstraints);
@@ -885,10 +957,11 @@ namespace MXPBD
                 return;
             PhysicsInput input;
             RenameStringMap renameMap;
-            if (std::string physicsPath = GetPhysicsInputPath(e.armor); !physicsPath.empty())
-                input = GetPhysicsInput(physicsPath);
-            else if (std::string smpConfigPath = GetSMPConfigPath(e.armor); !smpConfigPath.empty())
-                input = ConvertSMPConfig(smpConfigPath);
+            if (std::string physicsPath = GetPhysicsInputPath(e.armor); physicsPath.empty() || !GetPhysicsInput(physicsPath, input))
+            {
+                if (std::string smpConfigPath = GetSMPConfigPath(e.armor); !smpConfigPath.empty())
+                    ConvertSMPConfig(smpConfigPath, input);
+            }
             if (!IsHDTSMPEnabled)
                 MergeArmorNodeTree(e.skeleton, e.armor, GetArmorCloneNodePrefix(e.bipedSlot), renameMap);
             FixBoneName(input, renameMap);

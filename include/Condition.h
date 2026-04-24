@@ -78,6 +78,33 @@ namespace Mus {
 		bool GetConditionFunction(ConditionItem& item) const;
         bool ConditionCheck(RE::Actor* a_actor, const ConditionPtr& condition) const;
 
+		inline std::vector<std::string> splitCondition(const std::string& s, const std::string& delimiter) const {
+            std::string str = trim_copy(s);
+
+            std::vector<std::string> result;
+            std::int32_t depth = 0;
+            std::size_t start = 0;
+            std::size_t delim_len = delimiter.length();
+
+            for (std::size_t i = 0; i < str.length();) {
+                if (str[i] == '(') {
+                    depth++;
+                    i++;
+                } else if (str[i] == ')') {
+                    depth--;
+                    i++;
+                } else if (depth == 0 && str.compare(i, delim_len, delimiter) == 0) {
+                    result.push_back(str.substr(start, i - start));
+                    i += delim_len;
+                    start = i;
+                } else {
+                    i++;
+                }
+            }
+            result.push_back(trim_copy(str.substr(start)));
+            return result;
+        }
+
 		inline void Logging(RE::Actor* a_actor, const ConditionItem& OR, bool isTrue) const {
 			std::string typestr = magic_enum::enum_name(ConditionType(OR.type)).data();
 			if (IsContainString(typestr, "EditorID")

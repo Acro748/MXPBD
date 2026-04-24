@@ -40,7 +40,7 @@ namespace Mus {
                 static_cast<MultipleConfig*>(&Config::GetSingleton())->LoadSkeletonFile();
                 ConditionManager::GetSingleton().SortConditions();
                 if (a_actor->loadedData && a_actor->loadedData->data3D)
-                    MXPBD::XPBDWorldUpdater::GetSingleton().UpdatePhysicsSetting(a_actor);
+                    MXPBD::XPBDWorldSystem::GetSingleton().ReloadPhysics(a_actor);
             }
 		}
 		else if (IsSameString(str1, "reset"))

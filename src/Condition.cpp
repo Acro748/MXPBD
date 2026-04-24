@@ -34,6 +34,7 @@ namespace Mus {
         {
 			if (ConditionCheck(a_actor, condition))
 			{
+                settings.infos.append_range(condition->setting.infos);
                 settings.bones.insert_range(condition->setting.bones);
                 settings.constraints.insert_range(condition->setting.constraints);
                 settings.angularConstraints.insert_range(condition->setting.angularConstraints);
@@ -78,7 +79,7 @@ namespace Mus {
 
 	bool ConditionManager::ParseConditions(Condition& condition) const
 	{
-		std::vector<std::string> splittedANDs = split(condition.originalCondition, "AND");
+        std::vector<std::string> splittedANDs = splitCondition(condition.originalCondition, "AND");
 
         bool isAllInvalid = true;
 		bool firstAND = true;
@@ -87,7 +88,7 @@ namespace Mus {
 			if (!firstAND)
 				logger::debug("AND ...");
 			firstAND = false;
-			std::vector<std::string> splittedORs = split(strAnd, "OR");
+            std::vector<std::string> splittedORs = splitCondition(strAnd, "OR");
 			ConditionItemOr conditionOr;
 
 			bool firstOR = true;

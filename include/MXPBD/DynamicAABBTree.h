@@ -3,22 +3,24 @@
 namespace MXPBD {
     struct AABB {
         AABB() : min(DirectX::XMVectorReplicate(FLT_MAX)), max(DirectX::XMVectorReplicate(-FLT_MAX)) {}
+        AABB(const float a_min_x, const float a_min_y, const float a_min_z, const float a_max_x, const float a_max_y, const float a_max_z) : min(DirectX::XMVectorSet(a_min_x, a_min_y, a_min_z, 0.0f)), max(DirectX::XMVectorSet(a_max_x, a_max_y, a_max_z, 0.0f)) {}
         AABB(const Vector& a_min, const Vector& a_max) : min(a_min), max(a_max) {}
-        Vector min = EmptyVector;
-        Vector max = EmptyVector;
 
-        inline bool Overlaps(const AABB& b) const {
+        Vector min = vZero;
+        Vector max = vZero;
+
+        [[nodiscard]] inline bool Overlaps(const AABB& b) const {
             const Vector fail1 = DirectX::XMVectorGreater(min, b.max);
             const Vector fail2 = DirectX::XMVectorLess(max, b.min);
             const Vector fail = DirectX::XMVectorOrInt(fail1, fail2);
             return DirectX::XMComparisonAllTrue(DirectX::XMVector3EqualIntR(fail, DirectX::XMVectorFalseInt()));
         }
 
-        inline AABB Merge(const AABB& b) const {
+        [[nodiscard]] inline AABB Merge(const AABB& b) const {
             return {DirectX::XMVectorMin(min, b.min), DirectX::XMVectorMax(max, b.max)};
         }
 
-        inline float SurfaceArea() const {
+        [[nodiscard]] inline float SurfaceArea() const {
             const Vector d = DirectX::XMVectorSubtract(max, min);
             const Vector dSwizzled = DirectX::XMVectorSwizzle<DirectX::XM_SWIZZLE_Y, DirectX::XM_SWIZZLE_Z, DirectX::XM_SWIZZLE_X, DirectX::XM_SWIZZLE_W>(d);
             Vector area = DirectX::XMVector3Dot(d, dSwizzled);
@@ -26,14 +28,14 @@ namespace MXPBD {
             return DirectX::XMVectorGetX(area);
         }
 
-        inline void Fatten(const float margin = 1.0f) {
+        [[nodiscard]] inline void Fatten(const float margin = 1.0f) {
             Vector vMargin = DirectX::XMVectorReplicate(margin);
             DirectX::XMVectorSetW(vMargin, 0.0f);
             min = DirectX::XMVectorSubtract(min, vMargin);
             max = DirectX::XMVectorAdd(max, vMargin);
         }
 
-        inline AABB GetWorldAABB(const Vector& pos, const Quaternion& rot, const float scale) const {
+        [[nodiscard]] inline AABB GetWorldAABB(const Vector& pos, const Quaternion& rot, const float scale) const {
             const Vector centerLocal = DirectX::XMVectorScale(DirectX::XMVectorAdd(max, min), 0.5f);
             const Vector extentsLocal = DirectX::XMVectorScale(DirectX::XMVectorSubtract(max, min), 0.5f * scale);
 
@@ -56,14 +58,14 @@ namespace MXPBD {
             return {wMin, wMax};
         }
 
-        inline bool IsContains(const AABB& b) const {
+        [[nodiscard]] inline bool IsContains(const AABB& b) const {
             const Vector minCheck = DirectX::XMVectorLessOrEqual(min, b.min);
             const Vector maxCheck = DirectX::XMVectorGreaterOrEqual(max, b.max);
             const Vector bothCheck = DirectX::XMVectorAndInt(minCheck, maxCheck);
             return DirectX::XMComparisonAllTrue(DirectX::XMVector3EqualIntR(bothCheck, DirectX::XMVectorTrueInt()));
         }
 
-        inline bool IsZero() const {
+        [[nodiscard]] inline bool IsZero() const {
             return DirectX::XMVectorGetX(min) == FLT_MAX || (DirectX::XMVectorGetX(min) == 0.0f && DirectX::XMVectorGetX(max) == 0.0f);
         }
     };

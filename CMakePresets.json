@@ -7,14 +7,14 @@
     },
   "configurePresets": [
     {
-      "binaryDir": "${sourceDir}/build",
+      "name": "common",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "SKSE_SUPPORT_XBYAK": "ON",
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CONFIGURATION_TYPES": "Release"
-      },
-      "hidden": true,
-      "name": "common"
+      }
     },
     {
       "name": "vcpkg",
@@ -36,7 +36,7 @@
       "hidden": true,
       "architecture": "x64",
       "cacheVariables": {
-        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
       }
     },
     {
@@ -55,12 +55,106 @@
       }
     },
     {
-      "name": "Release",
+      "name": "flat",
+      "hidden": true,
+      "cacheVariables": {
+        "ENABLE_SKYRIM_VR": "OFF",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/manifests/flatrim"
+      }
+    },
+    {
+      "name": "vr",
+      "hidden": true,
+      "cacheVariables": {
+        "ENABLE_SKYRIM_VR": "ON",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/manifests/vr"
+      }
+    },
+    {
+      "name": "avx",
+      "hidden": true,
+      "cacheVariables": {
+        "SIMD_LEVEL": "AVX"
+      }
+    },
+    {
+      "name": "avx2",
+      "hidden": true,
+      "cacheVariables": {
+        "SIMD_LEVEL": "AVX2"
+      }
+    },
+    {
+      "name": "avx512",
+      "hidden": true,
+      "cacheVariables": {
+        "SIMD_LEVEL": "AVX512"
+      }
+    },
+    {
+      "name": "Release-AVX-Flatrim",
       "inherits": [
         "common",
         "vcpkg",
         "x64",
-        "msvc"
+        "msvc",
+        "avx",
+        "flat"
+      ]
+    },
+    {
+      "name": "Release-AVX-VR",
+      "inherits": [
+        "common",
+        "vcpkg",
+        "x64",
+        "msvc",
+        "avx",
+        "vr"
+      ]
+    },
+    {
+      "name": "Release-AVX2-Flatrim",
+      "inherits": [
+        "common",
+        "vcpkg",
+        "x64",
+        "msvc",
+        "avx2",
+        "flat"
+      ]
+    },
+    {
+      "name": "Release-AVX2-VR",
+      "inherits": [
+        "common",
+        "vcpkg",
+        "x64",
+        "msvc",
+        "avx2",
+        "vr"
+      ]
+    },
+    {
+      "name": "Release-AVX512-Flatrim",
+      "inherits": [
+        "common",
+        "vcpkg",
+        "x64",
+        "msvc",
+        "avx512",
+        "flat"
+      ]
+    },
+    {
+      "name": "Release-AVX512-VR",
+      "inherits": [
+        "common",
+        "vcpkg",
+        "x64",
+        "msvc",
+        "avx512",
+        "vr"
       ]
     }
   ]

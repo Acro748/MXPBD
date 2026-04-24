@@ -16,10 +16,18 @@ namespace MXPBD {
         std::vector<RawConvexHull> rawConvexHulls;
         NearBones nearBones;
     };
+#if defined(AVX512)
     struct alignas(64) ConvexHullDataBatch {
+#elif defined(AVX2) || defined(AVX)
+    struct alignas(32) ConvexHullDataBatch {
+#endif
         float vX[COL_VERTEX_MAX], vY[COL_VERTEX_MAX], vZ[COL_VERTEX_MAX];
         float eX[COL_EDGE_MAX], eY[COL_EDGE_MAX], eZ[COL_EDGE_MAX];
         float fX[COL_FACE_MAX], fY[COL_FACE_MAX], fZ[COL_FACE_MAX];
+
+        std::uint8_t vertexCount = 0;
+        std::uint8_t edgeCount = 0;
+        std::uint8_t faceCount = 0;
     };
 
     void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawConvexHull& a_rawConvexHull);

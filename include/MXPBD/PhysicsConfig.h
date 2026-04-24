@@ -3,18 +3,25 @@
 namespace MXPBD {
     using RenameStringMap = std::unordered_map<std::string, std::string>;
     struct PhysicsInput {
+        struct Info {
+            bool isSMPConfig = false;
+            std::string inputPath = "";
+        };
+        std::vector<Info> infos;
         std::uint32_t bipedSlot = 0;
 
         struct Bone {
             float mass = 0.0f;
             float damping = 0.0f;
             float inertiaScale = 0.0f;
-            float rotRatio = 0.1f;
+            float restitution = 0.0f;
+            float rotationRatio = 0.1f;
             float gravity = 1.0f;
-            RE::NiPoint3 offset = EmptyPoint;
-            float colMargin = 0.5f;
-            float colFriction = 0.0f;
-            float colComp = 0.0001f;
+            RE::NiPoint3 offset = pZero;
+            float collisionMargin = 0.5f;
+            float collisionFriction = 0.0f;
+            float collisionRotationBias = 0.05f;
+            float collisionCompliance = 0.0001f;
 
             float linearRotTorque = 0.0f;
 
@@ -56,11 +63,11 @@ namespace MXPBD {
     void CreateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas);
     void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas);
 
-    PhysicsInput GetPhysicsInput(const std::string& file);
-    PhysicsInput GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file);
+    bool GetPhysicsInput(const std::string& file, PhysicsInput& input);
+    bool GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input);
 
-    PhysicsInput ConvertSMPConfig(const std::string& file);
-    PhysicsInput ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file);
+    bool ConvertSMPConfig(const std::string& file, PhysicsInput& input);
+    bool ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input);
 
     void FixBoneName(PhysicsInput& input, const RenameStringMap& map);
 

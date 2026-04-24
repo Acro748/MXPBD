@@ -131,7 +131,7 @@ namespace Mus::nif {
         return property->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kSkinned);
     }
 
-    const std::string NodePrefix = "MDTT";
+    const std::string NodePrefix = "MXPBD";
     tbb::concurrent_unordered_map<std::string, std::string> VirtualNodeNameMap;
     RE::BSFixedString GetVirtualNodeName(RE::BSFixedString nodeName)
     {

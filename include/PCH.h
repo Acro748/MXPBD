@@ -146,6 +146,7 @@ using EventResult = RE::BSEventNotifyControl;
 #include <tbb/parallel_invoke.h>
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_hash_map.h>
+#include <tbb/spin_mutex.h>
 
 #include "lString.h"
 #include "Hook.h"

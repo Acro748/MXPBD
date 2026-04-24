@@ -30,8 +30,11 @@ namespace MXPBD {
             if (!refr)
                 return;
             std::lock_guard lg(skeletonQueueLock);
-            if (skeletonQueue[refr->formID] == 0)
-                skeletonQueue[refr->formID] = 2;
+            auto it = skeletonQueue.find(refr->formID);
+            if (it == skeletonQueue.end())
+            {
+                skeletonQueue.emplace(refr->formID, 2);
+            }
 		}
 		std::mutex facegenQueueLock;
         std::unordered_map<RE::FormID, std::uint8_t> facegenQueue; // formID, delay
@@ -39,8 +42,11 @@ namespace MXPBD {
             if (!refr)
                 return;
             std::lock_guard lg(facegenQueueLock);
-            if (facegenQueue[refr->formID] == 0)
-                facegenQueue[refr->formID] = 2;
+            auto it = facegenQueue.find(refr->formID);
+            if (it == facegenQueue.end())
+            {
+                facegenQueue.emplace(refr->formID, 2);
+            }
         }
         struct slotQueue {
             std::uint32_t bipedBit; // formID, RE::BIPED_MODEL::BipedObjectSlot, delay
@@ -52,12 +58,20 @@ namespace MXPBD {
             if (!refr)
                 return;
             std::lock_guard lg(clothQueueLock);
+            auto it = clothQueue.find(refr->formID);
             if (isAttach) {
-                clothQueue[refr->formID].bipedBit |= 1 << bipedSlot;
-                clothQueue[refr->formID].delay = 3;
-            } else {
-                if (clothQueue.count(refr->formID) != 0)
-                    clothQueue[refr->formID].bipedBit &= ~(1 << bipedSlot);
+                if (it == clothQueue.end())
+                {
+                    clothQueue.emplace(refr->formID, slotQueue{.bipedBit = 1u << bipedSlot, .delay = 2});
+                }
+                else
+                {
+                    it->second.bipedBit |= 1 << bipedSlot;
+                }
+            } 
+            else {
+                if (it != clothQueue.end())
+                    it->second.bipedBit &= ~(1 << bipedSlot);
             }
         }
 	protected:

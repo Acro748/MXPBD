@@ -17,12 +17,14 @@ namespace MXPBD {
         }
 
         void Init();
-        void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot);
+        void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider = true);
         void UpdatePhysicsSetting(RE::TESObjectREFR* object, PhysicsInput input);
         void Reset() const;
         void Reset(RE::TESObjectREFR* object) const;
         void RemovePhysics(const RE::FormID objectID);
         void RemovePhysics(RE::TESObjectREFR* object, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot);
+
+        void ReloadPhysics(RE::TESObjectREFR* object);
 
         void UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode);
     private:
