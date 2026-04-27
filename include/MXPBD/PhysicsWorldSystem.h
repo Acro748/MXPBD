@@ -23,9 +23,8 @@ namespace MXPBD {
         void Reset(RE::TESObjectREFR* object) const;
         void RemovePhysics(const RE::FormID objectID);
         void RemovePhysics(RE::TESObjectREFR* object, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot);
-
         void ReloadPhysics(RE::TESObjectREFR* object);
-
+        void TogglePhysics(RE::TESObjectREFR* object, bool isDisable);
         void UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode);
     private:
         std::unique_ptr<XPBDWorld> physicsWorld;
@@ -47,10 +46,20 @@ namespace MXPBD {
                 bool operator==(const RawData& other) const {
                     return rootType == other.rootType && bipedSlot == other.bipedSlot;
                 }
+                bool operator<(const RawData& other) const {
+                    if (rootType != other.rootType)
+                        return rootType < other.rootType;
+                    return bipedSlot < other.bipedSlot;
+                }
                 PhysicsInput input;
                 std::vector<RawConvexHullData> rawConvexHullDatas;
             };
             std::vector<RawData> rawDatas;
+            inline void sortRawDatas() {
+                std::ranges::sort(rawDatas, [](const ObjectData::RawData& dataA, const ObjectData::RawData& dataB) {
+                    return dataA < dataB;
+                });
+            }
         };
         using ObjectDataPtr = std::shared_ptr<ObjectData>;
         ObjectDataPtr GetOrCreateObjectDataPtr_unsafe(RE::TESObjectREFR* object);
@@ -68,7 +77,6 @@ namespace MXPBD {
         void RemoveRenameMap(RenameStringMap& map, std::string_view prefix) const;
 
         void CheckObjectState();
-        bool CullingObject(RE::TESObjectREFR* object);
 
         std::string GetPhysicsInputPath(RE::NiNode* root) const;
         std::string GetSMPConfigPath(RE::NiNode* root) const;

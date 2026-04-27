@@ -6,13 +6,13 @@
     const auto timeStart = std::chrono::high_resolution_clock::now();   
 
 #define TIMELOG_END                                                                                                                 \
-    const auto timeEnd = std::chrono::high_resolution_clock::now();                                                                     \
-    nsSum += std::chrono::duration_cast<std::chrono::nanoseconds>(timeEnd - timeStart).count();                                             \
+    const auto timeEnd = std::chrono::high_resolution_clock::now();                                                                 \
+    nsSum += std::chrono::duration_cast<std::chrono::nanoseconds>(timeEnd - timeStart).count();                                     \
     timeCount++;                                                                                                                    \
     if (timeCount >= 1000)                                                                                                          \
     {                                                                                                                               \
         const auto ms = (nsSum / timeCount) * ns2ms;                                                                                \
-        logger::debug("{} time: {:.3f}ms ({} bones / {} constrants / {} angularConstrants / {} colliders)", __func__, ms,            \
+        logger::debug("{} time: {:.3f}ms ({} bones / {} constrants / {} angularConstrants / {} colliders)", __func__, ms,           \
                      physicsBones.numBones, constraints.numConstraints, angularConstraints.numConstraints, colliders.numColliders); \
         nsSum = 0;                                                                                                                  \
         timeCount = 0;                                                                                                              \
@@ -93,6 +93,7 @@ namespace MXPBD
                     objectDatas.acceleration[oi] = vZero;
                     objectDatas.boundingAABB[oi] = AABB();
                     objectDatas.isDisable[oi] = 0;
+                    objectDatas.isDisableByToggle[oi] = 0;
                     currentObjIdx = oi;
                     found = true;
                     logger::debug("{:x} : add new object {}", object->formID, currentObjIdx);
@@ -130,13 +131,15 @@ namespace MXPBD
                     objectDatas.acceleration.push_back(vZero);
                     objectDatas.boundingAABB.push_back(AABB());
                     objectDatas.isDisable.push_back(0);
+                    objectDatas.isDisableByToggle.push_back(0);
                     logger::debug("{:x} : add new object {}", object->formID, currentObjIdx);
                 }
             }
         }
         if (currentObjIdx == UINT32_MAX)
             return;
-        objectDatas.isDisable[currentObjIdx] = false;
+        objectDatas.isDisable[currentObjIdx] = 0;
+        objectDatas.isDisableByToggle[currentObjIdx] = 0;
 
         // add root
         std::uint32_t currentRootIdx = UINT32_MAX;
@@ -205,61 +208,71 @@ namespace MXPBD
                     return true;
 
                 std::string_view nodeName = obj->name.c_str();
-                if (boneNameToIdx.find(nodeName.data()) != boneNameToIdx.end())
-                    return true;
-                auto found = input.bones.find(nodeName.data());
-                if (found == input.bones.end())
-                    return true;
-
-                logger::debug("{:x} : add physics bone {}", object->formID, found->first);
-                const std::uint32_t bi = AllocateBone();
-                const Vector offset = DirectX::XMVector3Rotate(DirectX::XMVectorScale(ToVector(found->second.offset), obj->world.scale), ToQuaternion(obj->world.rotate));
-                physicsBones.pos[bi] = DirectX::XMVectorAdd(ToVector(obj->world.translate), offset);
-                physicsBones.pred[bi] = physicsBones.pos[bi];
-                physicsBones.vel[bi] = vZero;
-
-                physicsBones.rot[bi] = ToQuaternion(obj->world.rotate);
-                physicsBones.predRot[bi] = physicsBones.rot[bi];
-                physicsBones.angVel[bi] = vZero;
-
-                physicsBones.damping[bi] = found->second.damping;
-                physicsBones.inertiaScale[bi] = found->second.inertiaScale;
-                physicsBones.restitution[bi] = found->second.restitution;
-                physicsBones.rotationRatio[bi] = found->second.rotationRatio;
-                physicsBones.gravity[bi] = ToVector(GetSkyrimGravity(found->second.gravity));
-                physicsBones.offset[bi] = ToVector(found->second.offset);
-                physicsBones.invMass[bi] = (found->second.mass > FloatPrecision) ? (1.0f / found->second.mass) : 0.0f;
-
-                if (found->second.mass > FloatPrecision && found->second.inertiaScale > FloatPrecision)
-                    physicsBones.invInertia[bi] = 1.0f / (found->second.mass * found->second.inertiaScale);
+                std::uint32_t bi = 0;
+                if (auto boneIdxIt = boneNameToIdx.find(nodeName.data()); boneIdxIt != boneNameToIdx.end())
+                    bi = boneIdxIt->second;
                 else
-                    physicsBones.invInertia[bi] = 0.0f;
-
-                physicsBones.collisionMargin[bi] = (found->second.collisionMargin < COL_MARGIN_MIN ? COL_MARGIN_MIN : found->second.collisionMargin);
-                physicsBones.colShrink[bi] = (found->second.collisionMargin < COL_MARGIN_MIN ? COL_MARGIN_MIN - found->second.collisionMargin : 0.0f);
-                physicsBones.collisionFriction[bi] = found->second.collisionFriction;
-                physicsBones.collisionRotationBias[bi] = found->second.collisionRotationBias;
-                physicsBones.collisionCompliance[bi] = found->second.collisionCompliance;
-
-                physicsBones.node[bi] = RE::NiPointer(obj);
-                physicsBones.isParticle[bi] = 0;
-                physicsBones.parentBoneIdx[bi] = UINT32_MAX;
-                if (obj->parent && !obj->parent->name.empty())
                 {
-                    auto pit = boneNameToIdx.find(obj->parent->name.c_str());
-                    if (pit != boneNameToIdx.end())
-                        physicsBones.parentBoneIdx[bi] = pit->second;
+                    auto found = input.bones.find(nodeName.data());
+                    if (found == input.bones.end())
+                        return true;
+
+                    logger::debug("{:x} : add physics bone {}", object->formID, found->first);
+                    bi = AllocateBone();
+                    const Vector offset = DirectX::XMVector3Rotate(DirectX::XMVectorScale(ToVector(found->second.offset), obj->world.scale), ToQuaternion(obj->world.rotate));
+                    physicsBones.pos[bi] = DirectX::XMVectorAdd(ToVector(obj->world.translate), offset);
+                    physicsBones.pred[bi] = physicsBones.pos[bi];
+                    physicsBones.vel[bi] = vZero;
+
+                    physicsBones.rot[bi] = ToQuaternion(obj->world.rotate);
+                    physicsBones.predRot[bi] = physicsBones.rot[bi];
+                    physicsBones.angVel[bi] = vZero;
+
+                    physicsBones.damping[bi] = found->second.damping;
+                    physicsBones.inertiaScale[bi] = found->second.inertiaScale;
+                    physicsBones.restitution[bi] = found->second.restitution;
+                    physicsBones.rotationRatio[bi] = found->second.rotationRatio;
+                    physicsBones.gravity[bi] = ToVector(GetSkyrimGravity(found->second.gravity));
+                    physicsBones.offset[bi] = ToVector(found->second.offset);
+                    physicsBones.invMass[bi] = (found->second.mass > FloatPrecision) ? (1.0f / found->second.mass) : 0.0f;
+
+                    physicsBones.restPoseLimit[bi] = found->second.restPoseLimit;
+                    physicsBones.restPoseCompliance[bi] = found->second.restPoseCompliance;
+
+                    physicsBones.restPoseAngularLimit[bi] = found->second.restPoseAngularLimit;
+                    physicsBones.restPoseAngularCompliance[bi] = found->second.restPoseAngularCompliance;
+
+                    if (found->second.mass > FloatPrecision && found->second.inertiaScale > FloatPrecision)
+                        physicsBones.invInertia[bi] = 1.0f / (found->second.mass * found->second.inertiaScale);
+                    else
+                        physicsBones.invInertia[bi] = 0.0f;
+
+                    physicsBones.collisionMargin[bi] = (found->second.collisionMargin < COL_MARGIN_MIN ? COL_MARGIN_MIN : found->second.collisionMargin);
+                    physicsBones.collisionShrink[bi] = (found->second.collisionMargin < COL_MARGIN_MIN ? COL_MARGIN_MIN - found->second.collisionMargin : 0.0f);
+                    physicsBones.collisionFriction[bi] = found->second.collisionFriction;
+                    physicsBones.collisionRotationBias[bi] = found->second.collisionRotationBias;
+                    physicsBones.collisionCompliance[bi] = found->second.collisionCompliance;
+
+                    physicsBones.node[bi] = RE::NiPointer(obj);
+                    physicsBones.isParticle[bi] = 0;
+                    physicsBones.parentBoneIdx[bi] = UINT32_MAX;
+                    if (obj->parent && !obj->parent->name.empty())
+                    {
+                        auto pit = boneNameToIdx.find(obj->parent->name.c_str());
+                        if (pit != boneNameToIdx.end())
+                            physicsBones.parentBoneIdx[bi] = pit->second;
+                    }
+                    physicsBones.objIdx[bi] = currentObjIdx;
+                    physicsBones.rootIdx[bi] = currentRootIdx;
+                    physicsBones.depth[bi] = depth;
+
+                    physicsBones.worldScale[bi] = obj->world.scale;
+                    physicsBones.worldRot[bi] = obj->world.rotate;
+                    physicsBones.orgLocalPos[bi] = obj->local.translate;
+                    physicsBones.orgLocalRot[bi] = obj->local.rotate;
+
+                    boneNameToIdx[found->first] = bi;
                 }
-                physicsBones.objIdx[bi] = currentObjIdx;
-                physicsBones.rootIdx[bi] = currentRootIdx;
-                physicsBones.depth[bi] = depth;
-
-                physicsBones.worldScale[bi] = obj->world.scale;
-                physicsBones.worldRot[bi] = obj->world.rotate;
-                physicsBones.orgLocalPos[bi] = obj->local.translate;
-                physicsBones.orgLocalRot[bi] = obj->local.rotate;
-
-                boneNameToIdx[found->first] = bi;
 
                 if (auto pptn = particleParentToName.find(nodeName.data()); pptn != particleParentToName.end())
                 {
@@ -268,6 +281,8 @@ namespace MXPBD
                         {
                             const auto pit = input.bones.find(particleName);
                             if (pit == input.bones.end())
+                                continue;
+                            if (boneNameToIdx.find(particleName) != boneNameToIdx.end())
                                 continue;
 
                             logger::debug("{:x} : add physics particle({}) bone {} for {}", object->formID, particleDepth, particleName, parentName);
@@ -307,7 +322,7 @@ namespace MXPBD
 
                             physicsBones.worldScale[particleBi] = physicsBones.worldScale[parentIdx];
                             physicsBones.worldRot[particleBi] = physicsBones.worldRot[parentIdx];
-                            physicsBones.orgLocalPos[particleBi] = RE::NiPoint3();
+                            physicsBones.orgLocalPos[particleBi] = pit->second.offset;
                             physicsBones.orgLocalRot[particleBi] = RE::NiMatrix3();
 
                             boneNameToIdx[pit->first] = particleBi;
@@ -359,28 +374,28 @@ namespace MXPBD
 
                     const std::uint32_t ai = aiBase + validAnchorCount;
                     const std::uint32_t anchBi = boneNameToIdx[anchorName];
-                    constraints.anchIdx[ai] = anchBi;
+                    constraints.anchData[ai].anchIdx = anchBi;
                     const Vector tPos = physicsBones.pos[bit->second];
                     const Vector aPos = physicsBones.pos[anchBi];
-                    constraints.restLen[ai] = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(tPos, aPos)));
-                    constraints.compSquish[ai] = constraint.second.complianceSquish[a];
-                    constraints.compStretch[ai] = constraint.second.complianceStretch[a];
-                    constraints.squishLimit[ai] = constraint.second.squishLimit[a];
-                    constraints.stretchLimit[ai] = constraint.second.stretchLimit[a];
-                    constraints.angularLimit[ai] = constraint.second.angularLimit[a];
+                    constraints.anchData[ai].restLen = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(tPos, aPos)));
+                    constraints.anchData[ai].complianceSquish = constraint.second.complianceSquish[a];
+                    constraints.anchData[ai].complianceStretch = constraint.second.complianceStretch[a];
+                    constraints.anchData[ai].squishLimit = constraint.second.squishLimit[a];
+                    constraints.anchData[ai].stretchLimit = constraint.second.stretchLimit[a];
+                    constraints.anchData[ai].angularLimit = constraint.second.angularLimit[a];
                     Vector dirWorld = DirectX::XMVectorSubtract(tPos, aPos);
                     if (DirectX::XMVector3Less(vFloatPrecision, DirectX::XMVector3LengthSq(dirWorld)))
                     {
                         dirWorld = DirectX::XMVector3Normalize(dirWorld);
                         const Quaternion anchRotInv = DirectX::XMQuaternionConjugate(ToQuaternion(physicsBones.worldRot[anchBi]));
-                        constraints.restDirLocal[ai] = DirectX::XMVector3Rotate(dirWorld, anchRotInv);
+                        constraints.anchData[ai].restDirLocal = DirectX::XMVector3Rotate(dirWorld, anchRotInv);
                     }
                     else
                     {
-                        constraints.restDirLocal[ai] = DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
+                        constraints.anchData[ai].restDirLocal = DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
                     }
-                    constraints.squishDamping[ai] = constraint.second.squishDamping[a];
-                    constraints.stretchDamping[ai] = constraint.second.stretchDamping[a];
+                    constraints.anchData[ai].squishDamping = constraint.second.squishDamping[a];
+                    constraints.anchData[ai].stretchDamping = constraint.second.stretchDamping[a];
                     validAnchorCount++;
                 }
                 constraints.numAnchors[ci] = validAnchorCount;
@@ -414,7 +429,7 @@ namespace MXPBD
                     logger::debug("{:x} : add angular constraint {}({}) on {}", object->formID, angularConstraint.first, validAnchorCount, angularConstraint.second.anchorBoneNames[a]);
 
                     const std::uint32_t aai = aciBase + validAnchorCount;
-                    angularConstraints.anchIdx[aai] = abit->second;
+                    angularConstraints.anchData[aai].anchIdx = abit->second;
 
                     physicsBones.advancedRotation[abit->second] = 1;
 
@@ -422,10 +437,10 @@ namespace MXPBD
                     const Quaternion anchorRot = ToQuaternion(physicsBones.worldRot[abit->second]);
                     const Quaternion anchorRotInv = DirectX::XMQuaternionInverse(anchorRot);
                     const Quaternion restRot = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionMultiply(childRot, anchorRotInv));
-                    angularConstraints.restRot[aai] = restRot;
-                    angularConstraints.comp[aai] = angularConstraint.second.compliance[a];
-                    angularConstraints.limit[aai] = angularConstraint.second.limit[a];
-                    angularConstraints.damping[aai] = angularConstraint.second.damping[a];
+                    angularConstraints.anchData[aai].restRot = restRot;
+                    angularConstraints.anchData[aai].compliance = angularConstraint.second.compliance[a];
+                    angularConstraints.anchData[aai].limit = angularConstraint.second.limit[a];
+                    angularConstraints.anchData[aai].damping = angularConstraint.second.damping[a];
                     validAnchorCount++;
                 }
                 angularConstraints.numAnchors[aci] = validAnchorCount;
@@ -482,10 +497,10 @@ namespace MXPBD
                     }
                     colliders.boundingSphere[ci] = DirectX::XMVectorGetX(DirectX::XMVectorSqrt(maxRadiusSq));
 
-                    if (const float colShrink = physicsBones.colShrink[bit->second]; colShrink > FloatPrecision)
+                    if (const float colShrink = physicsBones.collisionShrink[bit->second]; colShrink > FloatPrecision)
                     {
                         const float maxShrink = colliders.boundingSphere[ci] * 0.9f;
-                        const float finalShrink = std::min(physicsBones.colShrink[bit->second], maxShrink);
+                        const float finalShrink = std::min(physicsBones.collisionShrink[bit->second], maxShrink);
                         const float shrinkRatio = 1.0f - (finalShrink / colliders.boundingSphere[ci]);
 
                         AABB shrinkedAABB = AABB();
@@ -592,6 +607,8 @@ namespace MXPBD
             {
                 const std::uint32_t begin = physicsBonesGroup[g];
                 const std::uint32_t end = physicsBonesGroup[g + 1];
+                if (begin >= end)
+                    continue;
                 if (physicsBones.objIdx[begin] != currentObjIdx)
                     continue;
                 logger::debug("{:x} : Found bones group", object->formID);
@@ -626,6 +643,12 @@ namespace MXPBD
                         physicsBones.gravity[bi] = ToVector(GetSkyrimGravity(found->second.gravity));
                         physicsBones.invMass[bi] = (found->second.mass > FloatPrecision) ? (1.0f / found->second.mass) : 0.0f;
 
+                        physicsBones.restPoseLimit[bi] = found->second.restPoseLimit;
+                        physicsBones.restPoseCompliance[bi] = found->second.restPoseCompliance;
+
+                        physicsBones.restPoseAngularLimit[bi] = found->second.restPoseAngularLimit;
+                        physicsBones.restPoseAngularCompliance[bi] = found->second.restPoseAngularCompliance;
+
                         if (found->second.mass > FloatPrecision && found->second.inertiaScale > FloatPrecision)
                             physicsBones.invInertia[bi] = 1.0f / (found->second.mass * found->second.inertiaScale);
                         else
@@ -634,7 +657,7 @@ namespace MXPBD
                         physicsBones.linearRotTorque[bi] = found->second.linearRotTorque;
 
                         physicsBones.collisionMargin[bi] = (found->second.collisionMargin < 0.0f ? 0.0f : found->second.collisionMargin);
-                        physicsBones.colShrink[bi] = (found->second.collisionMargin < COL_MARGIN_MIN ? COL_MARGIN_MIN - found->second.collisionMargin : 0.0f);
+                        physicsBones.collisionShrink[bi] = (found->second.collisionMargin < COL_MARGIN_MIN ? COL_MARGIN_MIN - found->second.collisionMargin : 0.0f);
                         physicsBones.collisionFriction[bi] = found->second.collisionFriction;
                         physicsBones.collisionRotationBias[bi] = found->second.collisionRotationBias;
                         physicsBones.collisionCompliance[bi] = found->second.collisionCompliance;
@@ -673,6 +696,12 @@ namespace MXPBD
                         physicsBones.gravity[bi] = ToVector(GetSkyrimGravity(found->second.gravity));
                         physicsBones.invMass[bi] = (found->second.mass > FloatPrecision) ? (1.0f / found->second.mass) : 0.0f;
 
+                        physicsBones.restPoseLimit[bi] = found->second.restPoseLimit;
+                        physicsBones.restPoseCompliance[bi] = found->second.restPoseCompliance;
+
+                        physicsBones.restPoseAngularLimit[bi] = found->second.restPoseAngularLimit;
+                        physicsBones.restPoseAngularCompliance[bi] = found->second.restPoseAngularCompliance;
+
                         if (found->second.mass > FloatPrecision && found->second.inertiaScale > FloatPrecision)
                             physicsBones.invInertia[bi] = (found->second.mass * found->second.inertiaScale);
                         else
@@ -692,6 +721,8 @@ namespace MXPBD
             {
                 const std::uint32_t begin = constraintsGroup[g];
                 const std::uint32_t end = constraintsGroup[g + 1];
+                if (begin >= end)
+                    continue;
                 if (constraints.objIdx[begin] != currentObjIdx)
                     continue;
                 logger::debug("{:x} : Found constraints group", object->formID);
@@ -725,28 +756,28 @@ namespace MXPBD
                         logger::debug("{:x} : add constraint {}({}) on {}", object->formID, nodeName, validAnchorCount, found->second.anchorBoneNames[a]);
                         const std::uint32_t ai = aiBase + validAnchorCount;
                         const std::uint32_t anchGlobIdx = boneNameToIdx[found->second.anchorBoneNames[a]];
-                        constraints.anchIdx[ai] = anchGlobIdx;
+                        constraints.anchData[ai].anchIdx = anchGlobIdx;
                         const Vector tPos = physicsBones.pos[bi];
                         const Vector aPos = physicsBones.pos[anchGlobIdx];
-                        constraints.restLen[ai] = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(tPos, aPos)));
-                        constraints.compSquish[ai] = found->second.complianceSquish[a];
-                        constraints.compStretch[ai] = found->second.complianceStretch[a];
-                        constraints.squishLimit[ai] = found->second.squishLimit[a];
-                        constraints.stretchLimit[ai] = found->second.stretchLimit[a];
-                        constraints.angularLimit[ai] = found->second.angularLimit[a];
+                        constraints.anchData[ai].restLen = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(tPos, aPos)));
+                        constraints.anchData[ai].complianceSquish = found->second.complianceSquish[a];
+                        constraints.anchData[ai].complianceStretch = found->second.complianceStretch[a];
+                        constraints.anchData[ai].squishLimit = found->second.squishLimit[a];
+                        constraints.anchData[ai].stretchLimit = found->second.stretchLimit[a];
+                        constraints.anchData[ai].angularLimit = found->second.angularLimit[a];
                         Vector dirWorld = DirectX::XMVectorSubtract(tPos, aPos);
                         if (DirectX::XMVector3Less(vFloatPrecision, DirectX::XMVector3LengthSq(dirWorld)))
                         {
                             dirWorld = DirectX::XMVector3Normalize(dirWorld);
                             const Quaternion anchRotInv = DirectX::XMQuaternionConjugate(ToQuaternion(physicsBones.worldRot[anchGlobIdx]));
-                            constraints.restDirLocal[ai] = DirectX::XMVector3Rotate(dirWorld, anchRotInv);
+                            constraints.anchData[ai].restDirLocal = DirectX::XMVector3Rotate(dirWorld, anchRotInv);
                         }
                         else
                         {
-                            constraints.restDirLocal[ai] = DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
+                            constraints.anchData[ai].restDirLocal = DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
                         }
-                        constraints.squishDamping[ai] = found->second.squishDamping[a];
-                        constraints.stretchDamping[ai] = found->second.stretchDamping[a];
+                        constraints.anchData[ai].squishDamping = found->second.squishDamping[a];
+                        constraints.anchData[ai].stretchDamping = found->second.stretchDamping[a];
                         validAnchorCount++;
                     }
                     constraints.numAnchors[ci] = validAnchorCount;
@@ -760,6 +791,8 @@ namespace MXPBD
             {
                 const std::uint32_t begin = angularConstraintsGroup[g];
                 const std::uint32_t end = angularConstraintsGroup[g + 1];
+                if (begin >= end)
+                    continue;
                 if (angularConstraints.objIdx[begin] != currentObjIdx)
                     continue;
                 logger::debug("{:x} : Found angular constraints group", object->formID);
@@ -799,7 +832,7 @@ namespace MXPBD
                         logger::debug("{:x} : add angular constraint {}({}) on {}", object->formID, nodeName, validAnchorCount, found->second.anchorBoneNames[a]);
                         const std::uint32_t ai = aiBase + validAnchorCount;
                         const std::uint32_t anchBi = boneNameToIdx[found->second.anchorBoneNames[a]];
-                        angularConstraints.anchIdx[ai] = anchBi;
+                        angularConstraints.anchData[ai].anchIdx = anchBi;
 
                         const auto anchBoneIt = input.bones.find(found->second.anchorBoneNames[a]);
                         if (anchBoneIt == input.bones.end())
@@ -811,10 +844,10 @@ namespace MXPBD
                         const Quaternion anchorRot = ToQuaternion(physicsBones.worldRot[anchBi]);
                         const Quaternion anchorRotInv = DirectX::XMQuaternionInverse(anchorRot);
                         const Quaternion restRot = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionMultiply(childRot, anchorRotInv));
-                        angularConstraints.restRot[ai] = restRot;
-                        angularConstraints.comp[ai] = found->second.compliance[a];
-                        angularConstraints.limit[ai] = found->second.limit[a];
-                        angularConstraints.damping[ai] = found->second.damping[a];
+                        angularConstraints.anchData[ai].restRot = restRot;
+                        angularConstraints.anchData[ai].compliance = found->second.compliance[a];
+                        angularConstraints.anchData[ai].limit = found->second.limit[a];
+                        angularConstraints.anchData[ai].damping = found->second.damping[a];
                         validAnchorCount++;
                     }
                     angularConstraints.numAnchors[aci] = validAnchorCount;
@@ -848,6 +881,8 @@ namespace MXPBD
                         {
                             const std::uint32_t begin = physicsBonesGroup[g];
                             const std::uint32_t end = physicsBonesGroup[g + 1];
+                            if (begin >= end)
+                                continue;
                             for (std::uint32_t bi = begin; bi < end; ++bi)
                             {
                                 ResetBone(bi);
@@ -890,6 +925,8 @@ namespace MXPBD
             {
                 const std::uint32_t begin = physicsBonesGroup[g];
                 const std::uint32_t end = physicsBonesGroup[g + 1];
+                if (begin >= end)
+                    continue;
                 if (physicsBones.objIdx[begin] != oi)
                     continue;
                 for (std::uint32_t bi = begin; bi < end; ++bi)
@@ -966,6 +1003,7 @@ namespace MXPBD
                 continue;
             objectDatas.objectID[i] = 0;
             objectDatas.isDisable[i] = true;
+            objectDatas.isDisableByToggle[i] = true;
             for (std::uint32_t ri = 0; ri < objectDatas.roots[i].size(); ++ri)
             {
                 cleanList.insert(CleanObject(i, ri));
@@ -1011,8 +1049,7 @@ namespace MXPBD
                 continue;
             if (objectDatas.isDisable[i] != isDisable)
             {
-                objectDatas.isDisable[i] = isDisable;
-                orderDirty = true;
+                objectDatas.isDisableByToggle[i] = isDisable;
             }
             break;
         }
@@ -1150,6 +1187,7 @@ namespace MXPBD
                 ClampObjectRotation();
                 PrefetchBoneDatas();
                 UpdateGlobalAABBTree();
+                ObjectCulling();
 
                 const std::uint32_t minExpectedCollisionCount = colliders.numColliders * 4;
                 if (manifoldCacheCount > collideMaxObserved)
@@ -1177,6 +1215,7 @@ namespace MXPBD
                     SolveCachedCollisions(DeltaTime60);
                     SolveCachedGroundCollisions(DeltaTime60);
                     SolveConstraints(DeltaTime60, i == 0);
+                    SolveRestPoseConstraints(DeltaTime60, i == 0);
                 }
                 UpdateBoneVelocity(DeltaTime60);
 
@@ -1194,23 +1233,26 @@ namespace MXPBD
         // logger::info("{}", __func__);
         TIMELOG_START;
         const Vector invDt = DirectX::XMVectorReplicate(1.0f / deltaTime);
+        const std::uint32_t objects = objectDatas.objectID.size();
         tbb::parallel_for(
-            tbb::blocked_range<std::uint32_t>(0, objectDatas.objectID.size()),
+            tbb::blocked_range<std::uint32_t>(0, objects),
             [&](const tbb::blocked_range<std::uint32_t>& r) {
                 for (std::uint32_t oi = r.begin(); oi != r.end(); ++oi)
                 {
+                    if (objectDatas.objectID[oi] == 0)
+                        continue;
                     RE::TESObjectREFR* object = GetREFR(objectDatas.objectID[oi]);
-                    if (!object || objectDatas.isDisable[oi])
+                    if (!object)
                         continue;
                     const Vector currentWorldPos = ToVector(object->GetPosition());
                     const Vector currentVel = DirectX::XMVectorMultiply(DirectX::XMVectorSubtract(currentWorldPos, objectDatas.prevWorldPos[oi]), invDt);
                     objectDatas.acceleration[oi] = DirectX::XMVectorMultiply(DirectX::XMVectorSubtract(currentVel, objectDatas.velocity[oi]), invDt);
+                    objectDatas.velocity[oi] = currentVel;
+                    objectDatas.prevWorldPos[oi] = currentWorldPos;
                     if (RE::TESObjectCELL* cell = object->GetParentCell(); cell)
                         objectDatas.bhkWorld[oi] = cell->GetbhkWorld();
                     else
                         objectDatas.bhkWorld[oi] = nullptr;
-                    objectDatas.velocity[oi] = currentVel;
-                    objectDatas.prevWorldPos[oi] = currentWorldPos;
                 }
             },
             tbb::static_partitioner()
@@ -1220,10 +1262,15 @@ namespace MXPBD
 
     void XPBDWorld::ClampObjectRotation()
     {
+        if (physicsBonesGroup.empty())
+            return;
         TIMELOG_START;
-        for (std::uint32_t oi = 0; oi != objectDatas.objectID.size(); ++oi)
+        const std::uint32_t groups = physicsBonesGroup.size() - 1;
+        for (std::uint32_t g = 0; g < groups; ++g)
         {
-            if (objectDatas.isDisable[oi])
+            const std::uint32_t begin = physicsBonesGroup[g];
+            const std::uint32_t oi = physicsBones.objIdx[begin];
+            if (oi == UINT32_MAX || objectDatas.isDisable[oi])
                 continue;
             if (objectDatas.objectID[oi] != 0x14)
                 continue;
@@ -1339,7 +1386,7 @@ namespace MXPBD
 
         for (std::uint32_t i = 0; i < objectDatas.objectID.size(); ++i)
         {
-            if (objectDatas.isDisable[i] || objectDatas.objectID[i] == 0)
+            if (objectDatas.objectID[i] == 0)
             {
                 if (objIdxToTreeNodeIdx[i] != UINT32_MAX)
                 {
@@ -1350,7 +1397,7 @@ namespace MXPBD
                 continue;
             }
             objectDatas.boundingAABB[i] = GetObjectAABB(i);
-            if (objectDatas.boundingAABB[i].IsZero())
+            if (objectDatas.boundingAABB[i].IsInvalid())
                 continue;
 
             if (objIdxToTreeNodeIdx[i] == UINT32_MAX)
@@ -1364,6 +1411,87 @@ namespace MXPBD
                 objIdxToTreeNodeIdx[i] = globalAABBTree.UpdateLeaf(objIdxToTreeNodeIdx[i], objectDatas.boundingAABB[i]);
             }
         }
+        TIMELOG_END;
+    }
+
+    void XPBDWorld::ObjectCulling()
+    {
+        RE::NiCamera* niCam = RE::Main::WorldRootCamera();
+        if (!niCam)
+            return;
+
+        TIMELOG_START;
+        const Vector camPos = ToVector(niCam->world.translate);
+
+        const auto m = niCam->GetRuntimeData().worldToCam;
+        const Vector r0 = DirectX::XMVectorSet(m[0][0], m[0][1], m[0][2], m[0][3]);
+        const Vector r1 = DirectX::XMVectorSet(m[1][0], m[1][1], m[1][2], m[1][3]);
+        const Vector r2 = DirectX::XMVectorSet(m[2][0], m[2][1], m[2][2], m[2][3]);
+        const Vector r3 = DirectX::XMVectorSet(m[3][0], m[3][1], m[3][2], m[3][3]);
+
+        Vector planes[6];
+        planes[0] = DirectX::XMVectorAdd(r3, r0);      // left
+        planes[1] = DirectX::XMVectorSubtract(r3, r0); // right
+        planes[2] = DirectX::XMVectorAdd(r3, r1);      // bottom
+        planes[3] = DirectX::XMVectorSubtract(r3, r1); // top
+        planes[4] = r2;                                // near
+        planes[5] = DirectX::XMVectorSubtract(r3, r2); // far
+        Vector absPlanes[6];
+        for (int i = 0; i < 6; ++i)
+        {
+            absPlanes[i] = DirectX::XMVectorAbs(planes[i]);
+        }
+
+        const std::uint32_t objects = objectDatas.objectID.size();
+        tbb::parallel_for(
+            tbb::blocked_range<std::uint32_t>(0, objects),
+            [&](const tbb::blocked_range<std::uint32_t>& r) {
+                for (std::uint32_t oi = r.begin(); oi != r.end(); ++oi)
+                {
+                    if (objectDatas.objectID[oi] == 0 || objectDatas.objectID[oi] == 0x14)
+                        continue;
+                    if (objectDatas.isDisableByToggle[oi])
+                    {
+                        objectDatas.isDisable[oi] = objectDatas.isDisableByToggle[oi];
+                        continue;
+                    }
+                    const AABB& boundingAABB = objectDatas.boundingAABB[oi];
+                    if (boundingAABB.IsInvalid())
+                        continue;
+
+                    // culling by distance
+                    const Vector closePt = DirectX::XMVectorMax(boundingAABB.min, DirectX::XMVectorMin(camPos, boundingAABB.max));
+                    const Vector distSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(camPos, closePt));
+                    if (DirectX::XMVector3Less(CULLING_DISTANCE_SQ, distSq))
+                    {
+                        objectDatas.isDisable[oi] = 1;
+                        //logger::info("{:x} : disabled by distance", objectDatas.objectID[oi]);
+                        continue;
+                    }
+
+                    // culling by camera
+                    const Vector center = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(boundingAABB.max, boundingAABB.min), vHalf);
+                    const Vector extents = DirectX::XMVectorMultiply(DirectX::XMVectorSubtract(boundingAABB.max, boundingAABB.min), vHalf);
+                    bool isOutside = false;
+                    for (std::int32_t p = 0; p < 6; ++p)
+                    {
+                        const Vector dotC = DirectX::XMVector3Dot(planes[p], center);
+                        const Vector d = DirectX::XMVectorAdd(dotC, DirectX::XMVectorSplatW(planes[p]));
+                        const Vector r_proj = DirectX::XMVector3Dot(absPlanes[p], extents);
+                        if (DirectX::XMVector3Less(DirectX::XMVectorAdd(d, r_proj), vZero))
+                        {
+                            isOutside = true;
+                            break;
+                        }
+                    }
+                    //const std::uint8_t preDisable = objectDatas.isDisable[oi];
+                    objectDatas.isDisable[oi] = isOutside ? 1 : 0;
+                    /*if (preDisable != objectDatas.isDisable[oi])
+                        logger::info("{:x} : {} by camera", objectDatas.objectID[oi], objectDatas.isDisable[oi] == 0 ? "enabled" : "disabled");*/
+                }
+            },
+            tbb::static_partitioner()
+        );
         TIMELOG_END;
     }
 
@@ -1431,311 +1559,6 @@ namespace MXPBD
         TIMELOG_END;
     }
 
-    void XPBDWorld::SolveConstraints(const float deltaTime, const bool initLambda)
-    {
-        if (constraintsGroup.empty() && angularConstraintsGroup.empty())
-            return;
-        // logger::info("{}", __func__);
-        TIMELOG_START;
-        const float invDtSq = 1.0f / (deltaTime * deltaTime);
-        tbb::parallel_invoke([&] {
-            if (!constraintsGroup.empty() && !constraintsColorGroup.empty())
-            {
-                const std::uint32_t groups = constraintsGroup.size() - 1ull;
-                tbb::parallel_for(
-                    tbb::blocked_range<std::uint32_t>(0, groups),
-                    [&](const tbb::blocked_range<std::uint32_t>& r) {
-                        for (std::uint32_t g = r.begin(); g != r.end(); ++g)
-                        {
-                            const std::uint32_t begin = constraintsGroup[g];
-                            const std::uint32_t end = constraintsGroup[g + 1];
-                            if (begin >= end)
-                                continue;
-                            const std::uint32_t oi = constraints.objIdx[begin];
-                            if (oi == UINT32_MAX || objectDatas.isDisable[oi])
-                                continue;
-
-                            auto ccgIt = std::lower_bound(constraintsColorGroup.begin(), constraintsColorGroup.end(), begin);
-                            std::uint32_t ccgi = std::distance(constraintsColorGroup.begin(), ccgIt);
-                            const std::uint32_t colorGroups = constraintsColorGroup.size() - 1ull;
-                            while (ccgi < colorGroups && constraintsColorGroup[ccgi] < end)
-                            {
-                                std::uint32_t c_begin = constraintsColorGroup[ccgi];
-                                std::uint32_t c_end = std::min(static_cast<std::uint32_t>(constraintsColorGroup[ccgi + 1]), end);
-
-                                for (std::uint32_t ci = c_begin; ci < c_end; ++ci)
-                                {
-                                    const std::uint32_t bi = constraints.boneIdx[ci];
-                                    const float& invMass = physicsBones.invMass[bi];
-                                    if (invMass <= FloatPrecision)
-                                        continue;
-
-                                    const std::uint32_t numAnchors = constraints.numAnchors[ci];
-                                    const std::uint32_t aiBase = ci * ANCHOR_MAX;
-                                    for (std::uint32_t anchor = 0; anchor < numAnchors; ++anchor)
-                                    {
-                                        const std::uint32_t ai = aiBase + anchor;
-                                        const std::uint32_t& abi = constraints.anchIdx[ai];
-                                        if (abi == UINT32_MAX)
-                                            continue;
-
-                                        const float anchInvMass = physicsBones.invMass[abi];
-                                        const float wSum = invMass + anchInvMass;
-                                        if (wSum <= FloatPrecision)
-                                            continue;
-
-                                        const Vector dir = DirectX::XMVectorSubtract(physicsBones.pred[bi], physicsBones.pred[abi]);
-                                        const Vector distSq = DirectX::XMVector3LengthSq(dir);
-                                        if (DirectX::XMVector3LessOrEqual(distSq, vFloatPrecision))
-                                            continue;
-
-                                        const Vector invDist = DirectX::XMVectorReciprocalSqrt(distSq);
-                                        const Vector normal = DirectX::XMVectorMultiply(dir, invDist);
-                                        const Vector dist = DirectX::XMVectorMultiply(distSq, invDist);
-
-                                        const Vector restLen = DirectX::XMVectorReplicate(constraints.restLen[ai]);
-                                        const Vector vC = DirectX::XMVectorSubtract(dist, restLen);
-                                        const float C = DirectX::XMVectorGetX(vC);
-                                        const float currentComp = C < 0.0f ? constraints.compSquish[ai] : constraints.compStretch[ai];
-                                        const float currentLimit = C < 0.0f ? constraints.squishLimit[ai] : constraints.stretchLimit[ai];
-                                        const float currentDamping = C < 0.0f ? constraints.squishDamping[ai] : constraints.stretchDamping[ai];
-                                        float currentFactor = 1.0f;
-                                        if (FloatPrecision < currentLimit)
-                                        {
-                                            const float ratio = std::min(std::abs(C) / currentLimit, 1.0f);
-                                            const float smoothFalloff = (1.0f - ratio) * (1.0f - ratio);
-                                            currentFactor = std::max(0.1f, smoothFalloff);
-                                        }
-                                        const Vector alphaProxy = DirectX::XMVectorReplicate((currentComp * currentFactor) * invDtSq);
-                                        const Vector vWSum = DirectX::XMVectorReplicate(wSum);
-                                        const Vector vDenom = DirectX::XMVectorAdd(vWSum, alphaProxy);
-                                        const Vector vInvDenom = DirectX::XMVectorReciprocal(vDenom);
-                                        Vector deltaLambda = vZero;
-                                        if (initLambda)
-                                        {
-                                            deltaLambda = DirectX::XMVectorMultiply(DirectX::XMVectorNegate(vC), vInvDenom);
-                                            constraints.lambda[ai] = DirectX::XMVectorGetX(deltaLambda);
-                                        }
-                                        else
-                                        {
-                                            deltaLambda = DirectX::XMVectorMultiply(DirectX::XMVectorSubtract(DirectX::XMVectorNegate(vC), DirectX::XMVectorScale(alphaProxy, constraints.lambda[ai])), vInvDenom);
-                                            constraints.lambda[ai] += DirectX::XMVectorGetX(deltaLambda);
-                                        }
-
-                                        const Vector correction = DirectX::XMVectorMultiply(normal, deltaLambda);
-                                        physicsBones.pred[bi] = DirectX::XMVectorMultiplyAdd(correction, DirectX::XMVectorReplicate(invMass), physicsBones.pred[bi]);
-
-                                        if (FloatPrecision < anchInvMass)
-                                        {
-                                            const Vector correctionA = DirectX::XMVectorScale(correction, anchInvMass);
-                                            physicsBones.pred[abi] = DirectX::XMVectorSubtract(physicsBones.pred[abi], correctionA);
-                                        }
-
-                                        if (FloatPrecision < currentDamping)
-                                        {
-                                            const Vector deltaBi = DirectX::XMVectorSubtract(physicsBones.pred[bi], physicsBones.pos[bi]);
-                                            const Vector deltaAbi = DirectX::XMVectorSubtract(physicsBones.pred[abi], physicsBones.pos[abi]);
-
-                                            const Vector relDelta = DirectX::XMVectorSubtract(deltaBi, deltaAbi);
-
-                                            const Vector projDelta = DirectX::XMVector3Dot(relDelta, normal);
-
-                                            const Vector dampingCorrectionMag = DirectX::XMVectorScale(DirectX::XMVectorNegate(projDelta), currentDamping);
-                                            const Vector dampCorrection = DirectX::XMVectorMultiply(normal, DirectX::XMVectorScale(dampingCorrectionMag, 1.0f / wSum));
-
-                                            physicsBones.pred[bi] = DirectX::XMVectorMultiplyAdd(dampCorrection, DirectX::XMVectorReplicate(invMass), physicsBones.pred[bi]);
-                                            if (FloatPrecision < anchInvMass)
-                                            {
-                                                const Vector correctionA = DirectX::XMVectorScale(dampCorrection, anchInvMass);
-                                                physicsBones.pred[abi] = DirectX::XMVectorSubtract(physicsBones.pred[abi], correctionA);
-                                            }
-                                        }
-
-                                        const float limitAngle = constraints.angularLimit[ai];
-                                        if (FloatPrecision < limitAngle)
-                                        {
-                                            const Vector vLimitAngle = DirectX::XMVectorReplicate(limitAngle);
-                                            Vector currentDir = DirectX::XMVectorSubtract(physicsBones.pred[bi], physicsBones.pred[abi]);
-                                            if (DirectX::XMVector3LessOrEqual(DirectX::XMVector3Length(currentDir), vFloatPrecision))
-                                                continue;
-
-                                            const Vector currentDist = DirectX::XMVector3Length(currentDir);
-                                            const Vector invCurrentDist = DirectX::XMVectorReciprocal(currentDist);
-                                            currentDir = DirectX::XMVectorMultiply(currentDir, invCurrentDist);
-
-                                            Vector restDirWorld = DirectX::XMVector3Rotate(constraints.restDirLocal[ai], physicsBones.predRot[abi]);
-                                            restDirWorld = DirectX::XMVector3Normalize(restDirWorld);
-
-                                            Vector dot = DirectX::XMVector3Dot(currentDir, restDirWorld);
-                                            dot = DirectX::XMVectorMin(dot, vOne);
-                                            dot = DirectX::XMVectorMax(dot, vNegOne);
-                                            const Vector currentAngle = DirectX::XMVectorACos(dot);
-                                            if (DirectX::XMVector3LessOrEqual(currentAngle, vLimitAngle))
-                                                continue;
-
-                                            Vector axis = DirectX::XMVector3Cross(restDirWorld, currentDir);
-                                            if (DirectX::XMVector3Less(vFloatPrecision, DirectX::XMVector3LengthSq(axis)))
-                                            {
-                                                axis = DirectX::XMVector3Normalize(axis);
-                                                const Quaternion limitRot = DirectX::XMQuaternionRotationAxis(axis, limitAngle);
-                                                const Vector maxAllowedDir = DirectX::XMVector3Rotate(restDirWorld, limitRot);
-                                                const Vector targetPos = DirectX::XMVectorAdd(physicsBones.pred[abi], DirectX::XMVectorMultiply(maxAllowedDir, currentDist));
-                                                const Vector angCorrection = DirectX::XMVectorSubtract(targetPos, physicsBones.pred[bi]);
-                                                physicsBones.pred[bi] = DirectX::XMVectorAdd(physicsBones.pred[bi], DirectX::XMVectorScale(angCorrection, invMass / wSum));
-                                                if (FloatPrecision < anchInvMass)
-                                                {
-                                                    physicsBones.pred[abi] = DirectX::XMVectorSubtract(physicsBones.pred[abi], DirectX::XMVectorScale(angCorrection, anchInvMass / wSum));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                ccgi++;
-                            }
-                        }
-                    },
-                    tbb::auto_partitioner()
-                );
-            } 
-        }, [&] {
-            if (!angularConstraintsGroup.empty() && !angularConstraintsColorGroup.empty())
-            {
-                const std::uint32_t groups = angularConstraintsGroup.size() - 1ull;
-                tbb::parallel_for(
-                    tbb::blocked_range<std::uint32_t>(0, groups),
-                    [&](const tbb::blocked_range<std::uint32_t>& r) {
-                        for (std::uint32_t g = r.begin(); g != r.end(); ++g)
-                        {
-                            const std::uint32_t begin = angularConstraintsGroup[g];
-                            const std::uint32_t end = angularConstraintsGroup[g + 1];
-                            if (begin >= end)
-                                continue;
-                            const std::uint32_t oi = angularConstraints.objIdx[begin];
-                            if (oi == UINT32_MAX || objectDatas.isDisable[oi])
-                                continue;
-
-                            auto cgIt = std::lower_bound(angularConstraintsColorGroup.begin(), angularConstraintsColorGroup.end(), begin);
-                            std::uint32_t ccgi = std::distance(angularConstraintsColorGroup.begin(), cgIt);
-                            const std::uint32_t colorGroups = angularConstraintsColorGroup.size() - 1ull;
-                            while (ccgi < colorGroups && angularConstraintsColorGroup[ccgi] < end)
-                            {
-                                std::uint32_t c_begin = angularConstraintsColorGroup[ccgi];
-                                std::uint32_t c_end = std::min(static_cast<std::uint32_t>(angularConstraintsColorGroup[ccgi + 1]), end);
-
-                                for (std::uint32_t ci = c_begin; ci < c_end; ++ci)
-                                {
-                                    const std::uint32_t bi = angularConstraints.boneIdx[ci];
-                                    const float invInertia = physicsBones.invInertia[bi];
-                                    if (invInertia <= FloatPrecision)
-                                        continue;
-                                    const float invMass = physicsBones.invMass[bi];
-                                    if (invMass <= FloatPrecision)
-                                        continue;
-
-                                    const std::uint32_t numAnchors = angularConstraints.numAnchors[ci];
-                                    const std::uint32_t aciBase = ci * ANCHOR_MAX;
-                                    for (std::uint32_t anchor = 0; anchor < numAnchors; ++anchor)
-                                    {
-                                        const std::uint32_t ai = aciBase + anchor;
-                                        const std::uint32_t& abi = angularConstraints.anchIdx[ai];
-                                        if (abi == UINT32_MAX)
-                                            continue;
-
-                                        const float invInertiaA = physicsBones.invInertia[abi];
-                                        const float wSum = invInertiaA + invInertia;
-                                        if (wSum <= FloatPrecision)
-                                            continue;
-
-                                        const Quaternion target = DirectX::XMQuaternionMultiply(angularConstraints.restRot[ai], physicsBones.predRot[abi]);
-                                        const Quaternion targetInv = DirectX::XMQuaternionConjugate(target);
-                                        const Quaternion diff = DirectX::XMQuaternionMultiply(targetInv, physicsBones.predRot[bi]);
-                                        Vector omega = DirectX::XMVectorGetW(diff) < 0.0f ? DirectX::XMVectorNegate(diff) : diff;
-                                        omega = DirectX::XMVectorSetW(omega, 0.0f);
-                                        const Vector CSq = DirectX::XMVector3LengthSq(omega);
-                                        if (DirectX::XMVector3LessOrEqual(CSq, vFloatPrecision))
-                                            continue;
-
-                                        const Vector vC = DirectX::XMVectorSqrt(CSq);
-                                        const float C = DirectX::XMVectorGetX(vC);
-                                        const float currentLimit = angularConstraints.limit[ai];
-                                        float currentFactor = 1.0f;
-                                        if (currentLimit > FloatPrecision)
-                                        {
-                                            const float ratio = std::min(C / currentLimit, 1.0f);
-                                            const float smoothFalloff = (1.0f - ratio) * (1.0f - ratio);
-                                            currentFactor = std::max(0.05f, smoothFalloff);
-                                        }
-                                        const Vector alphaProxy = DirectX::XMVectorReplicate((angularConstraints.comp[ai] * currentFactor) * invDtSq);
-                                        const Vector vWSum = DirectX::XMVectorReplicate(wSum);
-                                        const Vector vDenom = DirectX::XMVectorAdd(vWSum, alphaProxy);
-                                        const Vector vInvDenom = DirectX::XMVectorReciprocal(vDenom);
-                                        Vector deltaLambda = vZero;
-                                        if (initLambda)
-                                        {
-                                            deltaLambda = DirectX::XMVectorMultiply(DirectX::XMVectorNegate(vC), vInvDenom);
-                                            angularConstraints.lambda[ai] = DirectX::XMVectorGetX(deltaLambda);
-                                        }
-                                        else
-                                        {
-                                            deltaLambda = DirectX::XMVectorMultiply(DirectX::XMVectorSubtract(DirectX::XMVectorNegate(vC), DirectX::XMVectorScale(alphaProxy, angularConstraints.lambda[ai])), vInvDenom);
-                                            angularConstraints.lambda[ai] += DirectX::XMVectorGetX(deltaLambda);
-                                        }
-
-                                        const Vector correctionDir = DirectX::XMVectorMultiply(omega, DirectX::XMVectorReciprocal(vC));
-                                        {
-                                            const Vector correction = DirectX::XMVectorMultiply(correctionDir, deltaLambda);
-                                            if (invInertiaA > FloatPrecision)
-                                            {
-                                                const Vector thetaA = DirectX::XMVectorSetW(DirectX::XMVectorScale(correction, -invInertiaA), 0.0f);
-                                                const Vector dqA = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[abi], thetaA), vHalf);
-                                                physicsBones.predRot[abi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[abi], dqA));
-                                            }
-                                            const Vector theta = DirectX::XMVectorSetW(DirectX::XMVectorScale(correction, invInertia), 0.0f);
-                                            const Vector dq = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], theta), vHalf);
-                                            physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[bi], dq));
-                                        }
-
-                                        const float damping = angularConstraints.damping[ai];
-                                        if (damping > FloatPrecision)
-                                        {
-                                            auto CalcAngVel = [](const Quaternion& predQ, const Quaternion& prevQ) -> Vector {
-                                                Quaternion dq = DirectX::XMQuaternionMultiply(predQ, DirectX::XMQuaternionConjugate(prevQ));
-                                                if (DirectX::XMVectorGetW(dq) < 0.0f)
-                                                    dq = DirectX::XMVectorNegate(dq);
-                                                return DirectX::XMVectorSetW(DirectX::XMVectorScale(dq, 2.0f), 0.0f);
-                                            };
-
-                                            const Vector angVelBi = CalcAngVel(physicsBones.predRot[bi], physicsBones.rot[bi]);
-                                            const Vector angVelAbi = CalcAngVel(physicsBones.predRot[abi], physicsBones.rot[abi]);
-
-                                            const Vector relAngVel = DirectX::XMVectorSubtract(angVelBi, angVelAbi);
-
-                                            const Vector dampingCorrectionMag = DirectX::XMVectorScale(DirectX::XMVectorNegate(DirectX::XMVector3Dot(relAngVel, correctionDir)), damping);
-                                            const Vector dampCorrection = DirectX::XMVectorMultiply(correctionDir, DirectX::XMVectorScale(dampingCorrectionMag, 1.0f / wSum));
-
-                                            if (invInertiaA > FloatPrecision)
-                                            {
-                                                const Vector thetaA = DirectX::XMVectorSetW(DirectX::XMVectorScale(dampCorrection, -invInertiaA), 0.0f);
-                                                const Vector dqA = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[abi], thetaA), vHalf);
-                                                physicsBones.predRot[abi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[abi], dqA));
-                                            }
-                                            const Vector theta = DirectX::XMVectorSetW(DirectX::XMVectorScale(dampCorrection, invInertia), 0.0f);
-                                            const Vector dq = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], theta), vHalf);
-                                            physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[bi], dq));
-                                        }
-                                    }
-                                }
-                                ccgi++;
-                            }
-                        }
-                    },
-                    tbb::auto_partitioner()
-                );
-            } 
-        });
-        TIMELOG_END;
-    }
-
     void XPBDWorld::CreateLocalSpatialHash()
     {
         if (collidersGroup.empty())
@@ -1756,15 +1579,15 @@ namespace MXPBD
                 {
                     const std::uint32_t begin = collidersGroup[g];
                     const std::uint32_t end = collidersGroup[g + 1];
-                    if (begin >= end || end - begin == 0)
+                    if (begin >= end)
                         continue;
                     const std::uint32_t oi = colliders.objIdx[begin];
                     if (oi == UINT32_MAX || objectDatas.isDisable[oi])
                         continue;
                     auto& localHashSmall = objectHashesSmall[oi];
                     auto& localHashLarge = objectHashesLarge[oi];
-                    localHashSmall.Init(end - begin, SMALL_GRID_SIZE);
-                    localHashLarge.Init(end - begin, LARGE_GRID_SIZE);
+                    localHashSmall.Init(end - begin, SMALL_GRID_SIZE, COL_HASH_TABLE_SIZE);
+                    localHashLarge.Init(end - begin, LARGE_GRID_SIZE, COL_HASH_TABLE_SIZE);
                     for (std::uint32_t ci = begin; ci < end; ++ci)
                     {
                         const std::uint32_t bi = colliders.boneIdx[ci];
@@ -1787,13 +1610,13 @@ namespace MXPBD
                             localHashLarge.cellCount[hashLow]++;
                         }
                     }
-                    localHashSmall.cellStart[0] = 0;
-                    localHashLarge.cellStart[0] = 0;
-                    for (std::uint32_t i = 0; i < HASH_TABLE_SIZE; ++i)
+                    localHashSmall.cell[0] = 0;
+                    localHashLarge.cell[0] = 0;
+                    for (std::uint32_t i = 0; i < COL_HASH_TABLE_SIZE; ++i)
                     {
-                        localHashSmall.cellStart[i + 1] = localHashSmall.cellStart[i] + localHashSmall.cellCount[i];
+                        localHashSmall.cell[i + 1] = localHashSmall.cell[i] + localHashSmall.cellCount[i];
                         localHashSmall.cellCount[i] = 0;
-                        localHashLarge.cellStart[i + 1] = localHashLarge.cellStart[i] + localHashLarge.cellCount[i];
+                        localHashLarge.cell[i + 1] = localHashLarge.cell[i] + localHashLarge.cellCount[i];
                         localHashLarge.cellCount[i] = 0;
                     }
                     for (std::uint32_t ci = begin; ci < end; ++ci)
@@ -1806,25 +1629,26 @@ namespace MXPBD
                         if (radius <= SMALL_GRID_SIZE * 0.5f)
                         {
                             const std::uint32_t hashHigh = localHashSmall.HashWorldCoordsHigh(worldCenter);
-                            const std::uint32_t offsetHigh = localHashSmall.cellStart[hashHigh] + localHashSmall.cellCount[hashHigh]++;
+                            const std::uint32_t offsetHigh = localHashSmall.cell[hashHigh] + localHashSmall.cellCount[hashHigh]++;
                             localHashSmall.entries[offsetHigh] = ci;
                             const std::uint32_t hashLow = localHashSmall.HashWorldCoordsLow(worldCenter);
-                            const std::uint32_t offsetLow = localHashSmall.cellStart[hashLow] + localHashSmall.cellCount[hashLow]++;
+                            const std::uint32_t offsetLow = localHashSmall.cell[hashLow] + localHashSmall.cellCount[hashLow]++;
                             localHashSmall.entries[offsetLow] = ci;
                         }
                         else
                         {
                             const std::uint32_t hashHigh = localHashLarge.HashWorldCoordsHigh(worldCenter);
-                            const std::uint32_t offsetHigh = localHashLarge.cellStart[hashHigh] + localHashLarge.cellCount[hashHigh]++;
+                            const std::uint32_t offsetHigh = localHashLarge.cell[hashHigh] + localHashLarge.cellCount[hashHigh]++;
                             localHashLarge.entries[offsetHigh] = ci;
                             const std::uint32_t hashLow = localHashLarge.HashWorldCoordsLow(worldCenter);
-                            const std::uint32_t offsetLow = localHashLarge.cellStart[hashLow] + localHashLarge.cellCount[hashLow]++;
+                            const std::uint32_t offsetLow = localHashLarge.cell[hashLow] + localHashLarge.cellCount[hashLow]++;
                             localHashLarge.entries[offsetLow] = ci;
                         }
                     }
                 }
             },
-            tbb::auto_partitioner());
+            tbb::auto_partitioner()
+        );
         TIMELOG_END;
     }
 
@@ -1835,176 +1659,172 @@ namespace MXPBD
         // logger::info("{}", __func__);
         TIMELOG_START;
 
-        auto ResolveCollision = [&](const std::uint32_t coiA, const std::uint32_t coiB) {
+        auto AddManifold = [&](const std::uint32_t coiA, const std::uint32_t coiB) {
             ContactManifold manifold;
             if (!ConvexHullvsConvexHull(coiA, coiB, manifold))
-                return;
+                return false;
             const std::uint32_t idx = std::atomic_ref<std::uint32_t>(manifoldCacheCount).fetch_add(1, std::memory_order_relaxed);
             if (idx < expectedCollisionCount)
             {
                 manifoldCache[idx] = {coiA, coiB, manifold};
             }
+            return true;
         };
 
-        const std::uint32_t groups = collidersGroup.size() - 1;
-        std::vector<std::vector<AABBPair>> pairs(groups);
-        tbb::parallel_for(
-            tbb::blocked_range<std::uint32_t>(0, groups),
-            [&](const tbb::blocked_range<std::uint32_t>& r) {
-                for (std::uint32_t g = r.begin(); g != r.end(); ++g)
-                {
-                    const std::uint32_t beginA = collidersGroup[g];
-                    const std::uint32_t endA = collidersGroup[g + 1];
-                    if (beginA >= endA || endA - beginA == 0)
-                        continue;
-                    const std::uint32_t oi = colliders.objIdx[beginA];
-                    if (oi == UINT32_MAX || objectDatas.isDisable[oi])
-                        continue;
-                    pairs[g] = GetAABBPairs(oi);
-                }
-            },
-            tbb::static_partitioner()
-        );
+        tbb::enumerable_thread_specific<std::vector<std::uint32_t>> tls_checkedB(
+            []() {
+                std::vector<std::uint32_t> v;
+                v.reserve(128);
+                return v;
+            });
 
+        const std::uint32_t groups = collidersGroup.size() - 1;
         tbb::parallel_invoke([&] {
             tbb::parallel_for(
-                tbb::blocked_range<std::uint32_t>(0, groups),
-                [&](const tbb::blocked_range<std::uint32_t>& r) {
-                    for (std::uint32_t g = r.begin(); g != r.end(); ++g)
+                tbb::blocked_range<std::uint32_t>(0u, colliders.numColliders),
+                [&](const tbb::blocked_range<std::uint32_t>& cr) {
+                    auto& checkedB = tls_checkedB.local();
+                    for (std::uint32_t ciA = cr.begin(); ciA != cr.end(); ++ciA)
                     {
-                        const std::uint32_t beginA = collidersGroup[g];
-                        const std::uint32_t endA = collidersGroup[g + 1];
-                        if (beginA >= endA || endA - beginA == 0)
-                            continue;
-                        const std::uint32_t oi = colliders.objIdx[beginA];
+                        const std::uint32_t oi = colliders.objIdx[ciA];
                         if (oi == UINT32_MAX || objectDatas.isDisable[oi])
                             continue;
                         const auto& ownHashSmall = objectHashesSmall[oi];
                         const auto& ownHashLarge = objectHashesLarge[oi];
+                        if (ownHashSmall.cell.empty() || ownHashLarge.cell.empty())
+                            continue;
+                        const std::uint32_t biA = colliders.boneIdx[ciA];
+                        const Vector worldCenterA = DirectX::XMVectorAdd(physicsBones.pred[biA], DirectX::XMVector3Rotate(DirectX::XMVectorScale(colliders.boundingSphereCenter[ciA], physicsBones.worldScale[biA]), physicsBones.predRot[biA]));
+                        checkedB.clear();
+                        auto CheckCell = [&](const std::uint32_t hash, const LocalSpatialHash& ownHash) {
+                            const std::uint32_t beginHash = ownHash.cell[hash];
+                            const std::uint32_t endHash = ownHash.cell[hash + 1];
+                            for (std::uint32_t ei = beginHash; ei < endHash; ++ei)
+                            {
+                                const std::uint32_t ciB = ownHash.entries[ei];
+                                if (ciA >= ciB)
+                                    continue;
+                                const std::uint32_t biB = colliders.boneIdx[ciB];
+                                if (biA == biB)
+                                    continue;
+                                if (physicsBones.invMass[biA] + physicsBones.invMass[biB] <= FloatPrecision)
+                                    continue;
+                                if (std::find(checkedB.begin(), checkedB.end(), ciB) != checkedB.end())
+                                    continue;
+                                checkedB.push_back(ciB);
+
+                                const std::uint32_t noColCountA = colliders.noCollideCount[ciA];
+                                auto beginA = colliders.noCollideBoneIdx.begin() + static_cast<std::uint32_t>(ciA) * NOCOLLIDE_MAX;
+                                auto endA = beginA + noColCountA;
+                                const std::uint32_t noColCountB = colliders.noCollideCount[ciB];
+                                auto beginB = colliders.noCollideBoneIdx.begin() + static_cast<std::uint32_t>(ciB) * NOCOLLIDE_MAX;
+                                auto endB = beginB + noColCountB;
+                                if (std::find(beginA, endA, biB) != endA || std::find(beginB, endB, biA) != endB)
+                                    continue;
+
+                                AddManifold(ciA, ciB);
+                            }
+                        };
+
+                        {
+                            const std::uint32_t hashHighA = ownHashSmall.HashWorldCoordsHigh(worldCenterA);
+                            const std::uint32_t hashLowA = ownHashSmall.HashWorldCoordsLow(worldCenterA);
+                            CheckCell(hashHighA, ownHashSmall);
+                            CheckCell(hashLowA, ownHashSmall);
+                        }
+                        {
+                            const std::uint32_t hashHighA = ownHashLarge.HashWorldCoordsHigh(worldCenterA);
+                            const std::uint32_t hashLowA = ownHashLarge.HashWorldCoordsLow(worldCenterA);
+                            CheckCell(hashHighA, ownHashLarge);
+                            CheckCell(hashLowA, ownHashLarge);
+                        }
+                    }
+                },
+                tbb::auto_partitioner()
+            );
+        }, [&] {
+            std::vector<AABBPair> pairs;
+            pairs.reserve(groups * 4u);
+            std::vector<AABBPair> tempPairs;
+            tempPairs.reserve(32);
+            for (std::uint32_t g = 0; g != groups; ++g)
+            {
+                const std::uint32_t beginA = collidersGroup[g];
+                const std::uint32_t endA = collidersGroup[g + 1];
+                if (beginA >= endA)
+                    continue;
+                const std::uint32_t oi = colliders.objIdx[beginA];
+                if (oi == UINT32_MAX || objectDatas.isDisable[oi])
+                    continue;
+                tempPairs.clear();
+                const AABB objAABB = objectDatas.boundingAABB[oi];
+                globalAABBTree.QueryPairs(oi, objAABB, tempPairs);
+                if (tempPairs.empty())
+                    continue;
+                for (auto& p : tempPairs)
+                {
+                    p.beginA = beginA;
+                    p.endA = endA;
+                    pairs.push_back(std::move(p));
+                }
+            }
+            const std::uint32_t pairsSize = pairs.size();
+            tbb::parallel_for(
+                tbb::blocked_range<std::uint32_t>(0, pairsSize),
+                [&](const tbb::blocked_range<std::uint32_t>& pr) {
+                    for (std::uint32_t p = pr.begin(); p != pr.end(); ++p)
+                    {
+                        const auto& pair = pairs[p];
+                        const auto& anotherHashSmall = objectHashesSmall[pair.objIdxB];
+                        const auto& anotherHashLarge = objectHashesLarge[pair.objIdxB];
+                        if (anotherHashSmall.cell.empty() || anotherHashLarge.cell.empty())
+                            continue;
+                        const std::uint32_t beginA = pair.beginA;
+                        const std::uint32_t endA = pair.endA;
+                        if (beginA >= endA)
+                            continue;
+
                         tbb::parallel_for(
                             tbb::blocked_range<std::uint32_t>(beginA, endA),
                             [&](const tbb::blocked_range<std::uint32_t>& cr) {
-                                std::vector<std::uint32_t> checkedB;
-                                checkedB.reserve(128);
+                                auto& checkedB = tls_checkedB.local();
                                 for (std::uint32_t ciA = cr.begin(); ciA != cr.end(); ++ciA)
                                 {
                                     const std::uint32_t biA = colliders.boneIdx[ciA];
                                     const Vector worldCenterA = DirectX::XMVectorAdd(physicsBones.pred[biA], DirectX::XMVector3Rotate(DirectX::XMVectorScale(colliders.boundingSphereCenter[ciA], physicsBones.worldScale[biA]), physicsBones.predRot[biA]));
                                     checkedB.clear();
-                                    auto CheckCell = [&](const std::uint32_t hash, const LocalSpatialHash& ownHash) {
-                                        const std::uint32_t beginHash = ownHash.cellStart[hash];
-                                        const std::uint32_t endHash = ownHash.cellStart[hash + 1];
+                                    auto CheckCell = [&](const std::uint32_t hash, const LocalSpatialHash& anotherHash) {
+                                        if (anotherHash.cell.empty())
+                                            return;
+                                        const std::uint32_t beginHash = anotherHash.cell[hash];
+                                        const std::uint32_t endHash = anotherHash.cell[hash + 1];
                                         for (std::uint32_t ei = beginHash; ei < endHash; ++ei)
                                         {
-                                            const std::uint32_t ciB = ownHash.entries[ei];
+                                            const std::uint32_t ciB = anotherHash.entries[ei];
                                             if (ciA >= ciB)
                                                 continue;
                                             const std::uint32_t biB = colliders.boneIdx[ciB];
-                                            if (biA == biB)
-                                                continue;
-                                            if (physicsBones.invMass[biA] + physicsBones.invMass[biB] <= FloatPrecision)
+                                            if (physicsBones.invMass[biA] <= FloatPrecision && physicsBones.invMass[biB] <= FloatPrecision)
                                                 continue;
                                             if (std::find(checkedB.begin(), checkedB.end(), ciB) != checkedB.end())
                                                 continue;
                                             checkedB.push_back(ciB);
-
-                                            const std::uint32_t noColCountA = colliders.noCollideCount[ciA];
-                                            auto beginA = colliders.noCollideBoneIdx.begin() + static_cast<std::uint32_t>(ciA) * NOCOLLIDE_MAX;
-                                            auto endA = beginA + noColCountA;
-                                            const std::uint32_t noColCountB = colliders.noCollideCount[ciB];
-                                            auto beginB = colliders.noCollideBoneIdx.begin() + static_cast<std::uint32_t>(ciB) * NOCOLLIDE_MAX;
-                                            auto endB = beginB + noColCountB;
-                                            if (std::find(beginA, endA, biB) != endA || std::find(beginB, endB, biA) != endB)
-                                                continue;
-
-                                            ResolveCollision(ciA, ciB);
+                                            AddManifold(ciA, ciB);
                                         }
                                     };
 
                                     {
-                                        const std::uint32_t hashHighA = ownHashSmall.HashWorldCoordsHigh(worldCenterA);
-                                        const std::uint32_t hashLowA = ownHashSmall.HashWorldCoordsLow(worldCenterA);
-                                        CheckCell(hashHighA, ownHashSmall);
-                                        CheckCell(hashLowA, ownHashSmall);
+                                        const std::uint32_t hashHighA = anotherHashSmall.HashWorldCoordsHigh(worldCenterA);
+                                        const std::uint32_t hashLowA = anotherHashSmall.HashWorldCoordsLow(worldCenterA);
+                                        CheckCell(hashHighA, anotherHashSmall);
+                                        CheckCell(hashLowA, anotherHashSmall);
                                     }
                                     {
-                                        const std::uint32_t hashHighA = ownHashLarge.HashWorldCoordsHigh(worldCenterA);
-                                        const std::uint32_t hashLowA = ownHashLarge.HashWorldCoordsLow(worldCenterA);
-                                        CheckCell(hashHighA, ownHashLarge);
-                                        CheckCell(hashLowA, ownHashLarge);
+                                        const std::uint32_t hashHighA = anotherHashLarge.HashWorldCoordsHigh(worldCenterA);
+                                        const std::uint32_t hashLowA = anotherHashLarge.HashWorldCoordsLow(worldCenterA);
+                                        CheckCell(hashHighA, anotherHashLarge);
+                                        CheckCell(hashLowA, anotherHashLarge);
                                     }
-                                }
-                            },
-                            tbb::auto_partitioner()
-                        );
-                    }
-                },
-                tbb::auto_partitioner()
-            ); }, [&] {
-            tbb::parallel_for(
-                tbb::blocked_range<std::uint32_t>(0, groups),
-                [&](const tbb::blocked_range<std::uint32_t>& r) {
-                    for (std::uint32_t g = r.begin(); g != r.end(); ++g)
-                    {
-                        const std::uint32_t beginA = collidersGroup[g];
-                        const std::uint32_t endA = collidersGroup[g + 1];
-                        const std::uint32_t pGroups = pairs[g].size();
-                        if (pGroups == 0)
-                            continue;
-                        tbb::parallel_for(
-                            tbb::blocked_range<std::uint32_t>(0, pGroups),
-                            [&](const tbb::blocked_range<std::uint32_t>& pr) {
-                                for (std::uint32_t pg = pr.begin(); pg != pr.end(); ++pg)
-                                {
-                                    const auto& pair = pairs[g][pg];
-                                    const auto& anotherHashSmall = objectHashesSmall[pair.objIdxB];
-                                    const auto& anotherHashLarge = objectHashesLarge[pair.objIdxB];
-
-                                    tbb::parallel_for(
-                                        tbb::blocked_range<std::uint32_t>(beginA, endA),
-                                        [&](const tbb::blocked_range<std::uint32_t>& cr) {
-                                            std::vector<std::uint32_t> checkedB;
-                                            checkedB.reserve(128);
-
-                                            for (std::uint32_t ciA = cr.begin(); ciA != cr.end(); ++ciA)
-                                            {
-                                                const std::uint32_t biA = colliders.boneIdx[ciA];
-                                                const Vector worldCenterA = DirectX::XMVectorAdd(physicsBones.pred[biA], DirectX::XMVector3Rotate(DirectX::XMVectorScale(colliders.boundingSphereCenter[ciA], physicsBones.worldScale[biA]), physicsBones.predRot[biA]));
-                                                checkedB.clear();
-                                                auto CheckCell = [&](const std::uint32_t hash, const LocalSpatialHash& anotherHash) {
-                                                    const std::uint32_t beginHash = anotherHash.cellStart[hash];
-                                                    const std::uint32_t endHash = anotherHash.cellStart[hash + 1];
-                                                    for (std::uint32_t ei = beginHash; ei < endHash; ++ei)
-                                                    {
-                                                        const std::uint32_t ciB = anotherHash.entries[ei];
-                                                        if (ciA >= ciB)
-                                                            continue;
-                                                        const std::uint32_t biB = colliders.boneIdx[ciB];
-                                                        if (physicsBones.invMass[biA] <= FloatPrecision && physicsBones.invMass[biB] <= FloatPrecision)
-                                                            continue;
-                                                        if (std::find(checkedB.begin(), checkedB.end(), ciB) != checkedB.end())
-                                                            continue;
-                                                        checkedB.push_back(ciB);
-                                                        ResolveCollision(ciA, ciB);
-                                                    }
-                                                };
-
-                                                {
-                                                    const std::uint32_t hashHighA = anotherHashSmall.HashWorldCoordsHigh(worldCenterA);
-                                                    const std::uint32_t hashLowA = anotherHashSmall.HashWorldCoordsLow(worldCenterA);
-                                                    CheckCell(hashHighA, anotherHashSmall);
-                                                    CheckCell(hashLowA, anotherHashSmall);
-                                                }
-                                                {
-                                                    const std::uint32_t hashHighA = anotherHashLarge.HashWorldCoordsHigh(worldCenterA);
-                                                    const std::uint32_t hashLowA = anotherHashLarge.HashWorldCoordsLow(worldCenterA);
-                                                    CheckCell(hashHighA, anotherHashLarge);
-                                                    CheckCell(hashLowA, anotherHashLarge);
-                                                }
-                                            }
-                                        },
-                                        tbb::auto_partitioner()
-                                    );
                                 }
                             },
                             tbb::auto_partitioner()
@@ -2108,21 +1928,24 @@ namespace MXPBD
             return;
         TIMELOG_START;
         const float InvDtSq = 1.0f / (deltaTime * deltaTime);
-        auto StackManifold = [&](const std::uint32_t coiA, const std::uint32_t coiB, const ContactManifold& manifold) {
+        auto SolveManifold = [&](const std::uint32_t coiA, const std::uint32_t coiB, const ContactManifold& manifold) {
             const std::uint32_t biA = colliders.boneIdx[coiA];
             const std::uint32_t biB = colliders.boneIdx[coiB];
 
-            const float wA = physicsBones.invMass[biA];
-            const float wB = physicsBones.invMass[biB];
+            const Vector wA = DirectX::XMVectorReplicate(physicsBones.invMass[biA]);
+            const Vector wB = DirectX::XMVectorReplicate(physicsBones.invMass[biB]);
 
-            if (wA + wB <= FloatPrecision)
-                return;
+            const Vector invInertiaA = DirectX::XMVectorScale(DirectX::XMVectorReplicate(physicsBones.invInertia[biA]), physicsBones.collisionRotationBias[biA]);
+            const Vector invInertiaB = DirectX::XMVectorScale(DirectX::XMVectorReplicate(physicsBones.invInertia[biB]), physicsBones.collisionRotationBias[biB]);
 
-            Vector sumNormal = vZero;
+            Vector sumNormalA = vZero;
+            Vector sumNormalB = vZero;
             Vector sumRA = vZero;
             Vector sumRB = vZero;
-            Vector totalDepth = vZero;
-            Vector maxDepth = vZero;
+            Vector totalDepthA = vZero;
+            Vector totalDepthB = vZero;
+            Vector maxDepthA = vZero;
+            Vector maxDepthB = vZero;
             for (std::uint32_t i = 0; i < manifold.pointCount; ++i)
             {
                 const auto& cp = manifold.points[i];
@@ -2136,32 +1959,52 @@ namespace MXPBD
                 const Vector currentDepth = DirectX::XMVectorNegate(DirectX::XMVector3Dot(penetration, manifold.normal));
                 if (DirectX::XMVector3Less(vFloatPrecision, currentDepth))
                 {
-                    sumNormal = DirectX::XMVectorAdd(sumNormal, DirectX::XMVectorMultiply(manifold.normal, currentDepth));
-                    sumRA = DirectX::XMVectorAdd(sumRA, DirectX::XMVectorMultiply(rA, currentDepth));
-                    sumRB = DirectX::XMVectorAdd(sumRB, DirectX::XMVectorMultiply(rB, currentDepth));
-                    totalDepth = DirectX::XMVectorAdd(totalDepth, currentDepth);
-                    maxDepth = DirectX::XMVectorMax(maxDepth, currentDepth);
+                    const Vector rXNa = DirectX::XMVector3Cross(rA, manifold.normal);
+                    const Vector wSumA = DirectX::XMVectorMultiplyAdd(invInertiaA, DirectX::XMVector3LengthSq(rXNa), wA);
+
+                    const Vector rXNb = DirectX::XMVector3Cross(rB, manifold.normal);
+                    const Vector wSumB = DirectX::XMVectorMultiplyAdd(invInertiaB, DirectX::XMVector3LengthSq(rXNb), wB);
+
+                    const Vector wSumTotal = DirectX::XMVectorAdd(wSumA, wSumB);
+                    if (DirectX::XMVector3LessOrEqual(wSumTotal, vFloatPrecision))
+                        continue;
+
+                    const Vector invWSumTotal = DirectX::XMVectorReciprocal(wSumTotal);
+                    const Vector ratioA = DirectX::XMVectorMultiply(wSumA, invWSumTotal);
+                    const Vector ratioB = DirectX::XMVectorMultiply(wSumB, invWSumTotal);
+
+                    const Vector currDepthA = DirectX::XMVectorMultiply(currentDepth, ratioA);
+                    const Vector currDepthB = DirectX::XMVectorMultiply(currentDepth, ratioB);
+
+                    sumNormalA = DirectX::XMVectorAdd(sumNormalA, DirectX::XMVectorMultiply(manifold.normal, currDepthA));
+                    sumNormalB = DirectX::XMVectorAdd(sumNormalB, DirectX::XMVectorMultiply(DirectX::XMVectorNegate(manifold.normal), currDepthB));
+
+                    sumRA = DirectX::XMVectorAdd(sumRA, DirectX::XMVectorMultiply(rA, currDepthA));
+                    sumRB = DirectX::XMVectorAdd(sumRB, DirectX::XMVectorMultiply(rB, currDepthB));
+
+                    totalDepthA = DirectX::XMVectorAdd(totalDepthA, currDepthA);
+                    totalDepthB = DirectX::XMVectorAdd(totalDepthB, currDepthB);
+
+                    maxDepthA = DirectX::XMVectorMax(maxDepthA, currDepthA);
+                    maxDepthB = DirectX::XMVectorMax(maxDepthB, currDepthB);
                 }
             }
 
-            if (DirectX::XMVector3LessOrEqual(totalDepth, vFloatPrecision))
-                return;
-
-            if (wA > FloatPrecision)
+            if (DirectX::XMVector3Less(vFloatPrecision, totalDepthA) && DirectX::XMVector3Less(vFloatPrecision, wA))
             {
                 tbb::spin_mutex::scoped_lock sl(physicsBonesLock[biA]);
-                physicsBones.collisionCache[biA].n = DirectX::XMVectorAdd(physicsBones.collisionCache[biA].n, sumNormal);
+                physicsBones.collisionCache[biA].n = DirectX::XMVectorAdd(physicsBones.collisionCache[biA].n, sumNormalA);
                 physicsBones.collisionCache[biA].p = DirectX::XMVectorAdd(physicsBones.collisionCache[biA].p, sumRA);
-                physicsBones.collisionCache[biA].totalDepth += DirectX::XMVectorGetX(totalDepth);
-                physicsBones.collisionCache[biA].maxDepth = std::max(physicsBones.collisionCache[biA].maxDepth, DirectX::XMVectorGetX(maxDepth));
+                physicsBones.collisionCache[biA].totalDepth += DirectX::XMVectorGetX(totalDepthA);
+                physicsBones.collisionCache[biA].maxDepth = std::max(physicsBones.collisionCache[biA].maxDepth, DirectX::XMVectorGetX(maxDepthA));
             }
-            if (wB > FloatPrecision)
+            if (DirectX::XMVector3Less(vFloatPrecision, totalDepthB) && DirectX::XMVector3Less(vFloatPrecision, wB))
             {
                 tbb::spin_mutex::scoped_lock sl(physicsBonesLock[biB]);
-                physicsBones.collisionCache[biB].n = DirectX::XMVectorAdd(physicsBones.collisionCache[biB].n, DirectX::XMVectorNegate(sumNormal));
+                physicsBones.collisionCache[biB].n = DirectX::XMVectorAdd(physicsBones.collisionCache[biB].n, sumNormalB);
                 physicsBones.collisionCache[biB].p = DirectX::XMVectorAdd(physicsBones.collisionCache[biB].p, sumRB);
-                physicsBones.collisionCache[biB].totalDepth += DirectX::XMVectorGetX(totalDepth);
-                physicsBones.collisionCache[biB].maxDepth = std::max(physicsBones.collisionCache[biB].maxDepth, DirectX::XMVectorGetX(maxDepth));
+                physicsBones.collisionCache[biB].totalDepth += DirectX::XMVectorGetX(totalDepthB);
+                physicsBones.collisionCache[biB].maxDepth = std::max(physicsBones.collisionCache[biB].maxDepth, DirectX::XMVectorGetX(maxDepthB));
             }
         };
 
@@ -2171,7 +2014,7 @@ namespace MXPBD
                 for (std::uint32_t i = r.begin(); i != r.end(); ++i)
                 {
                     const auto& cached = manifoldCache[i];
-                    StackManifold(cached.coiA, cached.coiB, cached.manifold);
+                    SolveManifold(cached.coiA, cached.coiB, cached.manifold);
                 }
             },
             tbb::auto_partitioner()
@@ -2181,10 +2024,13 @@ namespace MXPBD
             [&](const tbb::blocked_range<std::uint32_t>& r) {
                 for (std::uint32_t bi = r.begin(); bi != r.end(); ++bi)
                 {
+                    const std::uint32_t oi = physicsBones.objIdx[bi];
+                    if (oi == UINT32_MAX || objectDatas.isDisable[oi])
+                        continue;
+
                     const float sumDepth = physicsBones.collisionCache[bi].totalDepth;
                     if (sumDepth <= FloatPrecision)
                         continue;
-
                     const float w = physicsBones.invMass[bi];
                     if (w <= FloatPrecision)
                         continue;
@@ -2235,13 +2081,16 @@ namespace MXPBD
             [&](const tbb::blocked_range<std::uint32_t>& r) {
                 for (std::uint32_t ci = r.begin(); ci != r.end(); ++ci)
                 {
+                    const std::uint32_t oi = colliders.objIdx[ci];
+                    if (oi == UINT32_MAX || objectDatas.isDisable[oi])
+                        continue;
                     const std::uint32_t bi = colliders.boneIdx[ci];
                     if (bi == UINT32_MAX)
                         continue;
                     if (!groundCache[bi].hasHit)
                         continue;
-                    const Vector w = DirectX::XMVectorReplicate(physicsBones.invMass[bi]);
-                    if (DirectX::XMVector3LessOrEqual(w, vFloatPrecision))
+                    const float w = physicsBones.invMass[bi];
+                    if (w <= FloatPrecision)
                         continue;
 
                     const Vector pos = physicsBones.pred[bi];
@@ -2260,43 +2109,491 @@ namespace MXPBD
                     const Quaternion invRot = DirectX::XMQuaternionConjugate(rot);
                     const Vector localNormal = DirectX::XMVector3Rotate(normal, invRot);
                     const Vector absLocalNormal = DirectX::XMVectorAbs(localNormal);
-                    const Vector projRadius = DirectX::XMVectorAdd(DirectX::XMVector3Dot(scaledHalfExtents, absLocalNormal), DirectX::XMVectorReplicate(physicsBones.collisionMargin[bi]));
+                    const float projRadius = DirectX::XMVectorGetX(DirectX::XMVector3Dot(scaledHalfExtents, absLocalNormal)) + physicsBones.collisionMargin[bi];
 
                     const Vector pointOnPlane = DirectX::XMVectorSetZ(pos, groundHeight);
-                    const Vector distanceToPlane = DirectX::XMVector3Dot(normal, DirectX::XMVectorSubtract(worldCenter, pointOnPlane));
-                    const Vector currentDepth = DirectX::XMVectorSubtract(projRadius, distanceToPlane);
-                    if (DirectX::XMVector3LessOrEqual(currentDepth, vFloatPrecision))
+                    const float distanceToPlane = DirectX::XMVectorGetX(DirectX::XMVector3Dot(normal, DirectX::XMVectorSubtract(worldCenter, pointOnPlane)));
+                    const float currentDepth = projRadius - distanceToPlane;
+                    if (currentDepth <= FloatPrecision)
                         continue;
 
-                    // linear
-                    const Vector alphaProxy = DirectX::XMVectorReplicate(physicsBones.collisionCompliance[bi] * invDtSq);
-                    const Vector lambda = DirectX::XMVectorMultiply(currentDepth, DirectX::XMVectorReciprocal(DirectX::XMVectorAdd(w, alphaProxy)));
-                    const Vector relaxedLambda = DirectX::XMVectorScale(lambda, COL_CONVERGENCE);
-                    const Vector correction = DirectX::XMVectorMultiply(normal, DirectX::XMVectorMultiply(relaxedLambda, w));
-                    physicsBones.pred[bi] = DirectX::XMVectorAdd(physicsBones.pred[bi], correction);
-
-                    // rotate
-                    const Vector contactPoint = DirectX::XMVectorSubtract(worldCenter, DirectX::XMVectorMultiply(normal, projRadius));
+                    const Vector contactPoint = DirectX::XMVectorSubtract(worldCenter, DirectX::XMVectorScale(normal, projRadius));
                     const Vector rVector = DirectX::XMVectorSubtract(contactPoint, pos);
 
                     const Vector rXN = DirectX::XMVector3Cross(rVector, normal);
                     const float invInertia = physicsBones.invInertia[bi] * physicsBones.collisionRotationBias[bi];
-                    const Vector wRot = DirectX::XMVectorScale(DirectX::XMVector3LengthSq(rXN), invInertia);
-                    const Vector wSum = DirectX::XMVectorAdd(wRot, w);
+                    const float wRot = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(rXN)) * invInertia;
+                    const float wSum = w + wRot;
+
+                    const float alphaProxy = physicsBones.collisionCompliance[bi] * invDtSq;
+                    const float lambda = currentDepth / (wSum + alphaProxy);
+                    const float relaxedLambda = lambda * COL_CONVERGENCE;
+                    const Vector correction = DirectX::XMVectorScale(normal, relaxedLambda * w);
+                    physicsBones.pred[bi] = DirectX::XMVectorAdd(physicsBones.pred[bi], correction);
+
                     if (FloatPrecision < invInertia)
                     {
-                        const Vector dTheta = DirectX::XMVectorMultiply(rXN, DirectX::XMVectorScale(relaxedLambda, invInertia));
+                        const Vector dTheta = DirectX::XMVectorScale(rXN, relaxedLambda * invInertia);
                         const Vector theta = DirectX::XMVectorSetW(dTheta, 0.0f);
                         const Vector dq = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], theta), vHalf);
                         physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[bi], dq));
                     }
 
                     physicsBones.frictionCache[bi].n = DirectX::XMVectorAdd(physicsBones.frictionCache[bi].n, DirectX::XMVectorNegate(normal));
-                    physicsBones.frictionCache[bi].depth = std::max(physicsBones.frictionCache[bi].depth, DirectX::XMVectorGetX(currentDepth));
+                    physicsBones.frictionCache[bi].depth = std::max(physicsBones.frictionCache[bi].depth, currentDepth);
                 }
             },
             tbb::auto_partitioner()
         );
+        TIMELOG_END;
+    }
+
+    void XPBDWorld::SolveConstraints(const float deltaTime, const bool initLambda)
+    {
+        if (constraintsGroup.empty() && angularConstraintsGroup.empty())
+            return;
+        // logger::info("{}", __func__);
+        TIMELOG_START;
+        const float invDtSq = 1.0f / (deltaTime * deltaTime);
+        tbb::parallel_invoke([&] {
+            if (!constraintsGroup.empty() && !constraintsColorGroup.empty())
+            {
+                const std::uint32_t groups = constraintsGroup.size() - 1ull;
+                tbb::parallel_for(
+                    tbb::blocked_range<std::uint32_t>(0, groups),
+                    [&](const tbb::blocked_range<std::uint32_t>& r) {
+                        for (std::uint32_t g = r.begin(); g != r.end(); ++g)
+                        {
+                            const std::uint32_t begin = constraintsGroup[g];
+                            const std::uint32_t end = constraintsGroup[g + 1];
+                            if (begin >= end)
+                                continue;
+                            const std::uint32_t oi = constraints.objIdx[begin];
+                            if (oi == UINT32_MAX || objectDatas.isDisable[oi])
+                                continue;
+
+                            auto ccgIt = std::lower_bound(constraintsColorGroup.begin(), constraintsColorGroup.end(), begin);
+                            std::uint32_t ccgi = std::distance(constraintsColorGroup.begin(), ccgIt);
+                            const std::uint32_t colorGroups = constraintsColorGroup.size() - 1ull;
+                            while (ccgi < colorGroups && constraintsColorGroup[ccgi] < end)
+                            {
+                                std::uint32_t c_begin = constraintsColorGroup[ccgi];
+                                std::uint32_t c_end = std::min(static_cast<std::uint32_t>(constraintsColorGroup[ccgi + 1]), end);
+
+                                for (std::uint32_t ci = c_begin; ci < c_end; ++ci)
+                                {
+                                    const std::uint32_t bi = constraints.boneIdx[ci];
+                                    const float& invMass = physicsBones.invMass[bi];
+                                    if (invMass <= FloatPrecision)
+                                        continue;
+
+                                    const std::uint32_t numAnchors = constraints.numAnchors[ci];
+                                    const std::uint32_t aiBase = ci * ANCHOR_MAX;
+                                    for (std::uint32_t anchor = 0; anchor < numAnchors; ++anchor)
+                                    {
+                                        const std::uint32_t ai = aiBase + anchor;
+                                        auto& anchData = constraints.anchData[ai];
+                                        const std::uint32_t& abi = anchData.anchIdx;
+                                        if (abi == UINT32_MAX)
+                                            continue;
+
+                                        const float anchInvMass = physicsBones.invMass[abi];
+                                        const float wSum = invMass + anchInvMass;
+                                        if (wSum <= FloatPrecision)
+                                            continue;
+
+                                        const Vector dir = DirectX::XMVectorSubtract(physicsBones.pred[bi], physicsBones.pred[abi]);
+                                        const float distSq = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(dir));
+                                        if (distSq < FloatPrecision)
+                                            continue;
+
+                                        const float invDist = rsqrt(distSq);
+                                        const Vector normal = DirectX::XMVectorScale(dir, invDist);
+                                        const float dist = distSq * invDist;
+
+                                        const float C = dist - anchData.restLen;
+                                        const bool isLessThanZero = C < 0.0f;
+                                        const float currentComp = isLessThanZero ? anchData.complianceSquish : anchData.complianceStretch;
+                                        const float currentLimit = isLessThanZero ? anchData.squishLimit : anchData.stretchLimit;
+                                        const float currentDamping = isLessThanZero ? anchData.squishDamping : anchData.stretchDamping;
+                                        float currentFactor = 1.0f;
+                                        if (FloatPrecision < currentLimit)
+                                        {
+                                            const float ratio = std::min(std::abs(C) / currentLimit, 1.0f);
+                                            const float ratioCubic = ratio * ratio * ratio;
+                                            currentFactor = std::max(1.0f - ratioCubic, FloatPrecision);
+                                        }
+                                        const float alphaProxy = (currentComp * currentFactor) * invDtSq;
+                                        const float denom = wSum + alphaProxy;
+                                        float deltaLambda = 0.0f;
+                                        if (initLambda)
+                                        {
+                                            deltaLambda = -C / denom;
+                                            anchData.lambda = deltaLambda;
+                                        }
+                                        else
+                                        {
+                                            deltaLambda = (-C - (alphaProxy * anchData.lambda)) / denom;
+                                            anchData.lambda += deltaLambda;
+                                        }
+
+                                        const float correctionMagBi = deltaLambda * invMass;
+                                        physicsBones.pred[bi] = DirectX::XMVectorAdd(physicsBones.pred[bi], DirectX::XMVectorScale(normal, correctionMagBi));
+                                        if (FloatPrecision < anchInvMass)
+                                        {
+                                            const float correctionMagAbi = deltaLambda * anchInvMass;
+                                            physicsBones.pred[abi] = DirectX::XMVectorSubtract(physicsBones.pred[abi], DirectX::XMVectorScale(normal, correctionMagAbi));
+                                        }
+
+                                        const float invWSum = 1.0f / wSum;
+                                        if (FloatPrecision < currentDamping)
+                                        {
+                                            const Vector deltaBi = DirectX::XMVectorSubtract(physicsBones.pred[bi], physicsBones.pos[bi]);
+                                            const Vector deltaAbi = DirectX::XMVectorSubtract(physicsBones.pred[abi], physicsBones.pos[abi]);
+
+                                            const Vector relDelta = DirectX::XMVectorSubtract(deltaBi, deltaAbi);
+
+                                            const float projDelta = DirectX::XMVectorGetX(DirectX::XMVector3Dot(relDelta, normal));
+                                            const float dampLambda = (-projDelta * currentDamping) * invWSum;
+                                            const Vector dampCorrection = DirectX::XMVectorScale(normal, dampLambda);
+
+                                            physicsBones.pred[bi] = DirectX::XMVectorMultiplyAdd(dampCorrection, DirectX::XMVectorReplicate(invMass), physicsBones.pred[bi]);
+                                            if (FloatPrecision < anchInvMass)
+                                            {
+                                                const Vector correctionA = DirectX::XMVectorScale(dampCorrection, anchInvMass);
+                                                physicsBones.pred[abi] = DirectX::XMVectorSubtract(physicsBones.pred[abi], correctionA);
+                                            }
+                                        }
+
+                                        const float limitAngle = anchData.angularLimit;
+                                        if (FloatPrecision < limitAngle)
+                                        {
+                                            const Vector vLimitAngle = DirectX::XMVectorReplicate(limitAngle);
+                                            Vector currentDir = DirectX::XMVectorSubtract(physicsBones.pred[bi], physicsBones.pred[abi]);
+                                            if (DirectX::XMVector3LessOrEqual(DirectX::XMVector3Length(currentDir), vFloatPrecision))
+                                                continue;
+
+                                            const Vector currentDist = DirectX::XMVector3Length(currentDir);
+                                            const Vector invCurrentDist = DirectX::XMVectorReciprocal(currentDist);
+                                            currentDir = DirectX::XMVectorMultiply(currentDir, invCurrentDist);
+
+                                            Vector restDirWorld = DirectX::XMVector3Rotate(anchData.restDirLocal, physicsBones.predRot[abi]);
+                                            restDirWorld = DirectX::XMVector3Normalize(restDirWorld);
+
+                                            Vector dot = DirectX::XMVector3Dot(currentDir, restDirWorld);
+                                            dot = DirectX::XMVectorMin(dot, vOne);
+                                            dot = DirectX::XMVectorMax(dot, vNegOne);
+                                            const Vector currentAngle = DirectX::XMVectorACos(dot);
+                                            if (DirectX::XMVector3LessOrEqual(currentAngle, vLimitAngle))
+                                                continue;
+
+                                            Vector axis = DirectX::XMVector3Cross(restDirWorld, currentDir);
+                                            if (DirectX::XMVector3Less(vFloatPrecision, DirectX::XMVector3LengthSq(axis)))
+                                            {
+                                                axis = DirectX::XMVector3Normalize(axis);
+                                                const Quaternion limitRot = DirectX::XMQuaternionRotationAxis(axis, limitAngle);
+                                                const Vector maxAllowedDir = DirectX::XMVector3Rotate(restDirWorld, limitRot);
+                                                const Vector targetPos = DirectX::XMVectorAdd(physicsBones.pred[abi], DirectX::XMVectorMultiply(maxAllowedDir, currentDist));
+                                                const Vector angCorrection = DirectX::XMVectorSubtract(targetPos, physicsBones.pred[bi]);
+                                                physicsBones.pred[bi] = DirectX::XMVectorAdd(physicsBones.pred[bi], DirectX::XMVectorScale(angCorrection, invMass * invWSum));
+                                                if (FloatPrecision < anchInvMass)
+                                                {
+                                                    physicsBones.pred[abi] = DirectX::XMVectorSubtract(physicsBones.pred[abi], DirectX::XMVectorScale(angCorrection, anchInvMass * invWSum));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                ccgi++;
+                            }
+                        }
+                    },
+                    tbb::auto_partitioner()
+                );
+            } }, [&] {
+            if (!angularConstraintsGroup.empty() && !angularConstraintsColorGroup.empty())
+            {
+                const std::uint32_t groups = angularConstraintsGroup.size() - 1ull;
+                tbb::parallel_for(
+                    tbb::blocked_range<std::uint32_t>(0, groups),
+                    [&](const tbb::blocked_range<std::uint32_t>& r) {
+                        for (std::uint32_t g = r.begin(); g != r.end(); ++g)
+                        {
+                            const std::uint32_t begin = angularConstraintsGroup[g];
+                            const std::uint32_t end = angularConstraintsGroup[g + 1];
+                            if (begin >= end)
+                                continue;
+                            const std::uint32_t oi = angularConstraints.objIdx[begin];
+                            if (oi == UINT32_MAX || objectDatas.isDisable[oi])
+                                continue;
+
+                            auto cgIt = std::lower_bound(angularConstraintsColorGroup.begin(), angularConstraintsColorGroup.end(), begin);
+                            std::uint32_t ccgi = std::distance(angularConstraintsColorGroup.begin(), cgIt);
+                            const std::uint32_t colorGroups = angularConstraintsColorGroup.size() - 1ull;
+                            while (ccgi < colorGroups && angularConstraintsColorGroup[ccgi] < end)
+                            {
+                                std::uint32_t c_begin = angularConstraintsColorGroup[ccgi];
+                                std::uint32_t c_end = std::min(static_cast<std::uint32_t>(angularConstraintsColorGroup[ccgi + 1]), end);
+
+                                for (std::uint32_t ci = c_begin; ci < c_end; ++ci)
+                                {
+                                    const std::uint32_t bi = angularConstraints.boneIdx[ci];
+                                    const float invInertia = physicsBones.invInertia[bi];
+                                    if (invInertia <= FloatPrecision)
+                                        continue;
+                                    const float invMass = physicsBones.invMass[bi];
+                                    if (invMass <= FloatPrecision)
+                                        continue;
+
+                                    const std::uint32_t numAnchors = angularConstraints.numAnchors[ci];
+                                    const std::uint32_t aciBase = ci * ANCHOR_MAX;
+                                    for (std::uint32_t anchor = 0; anchor < numAnchors; ++anchor)
+                                    {
+                                        const std::uint32_t ai = aciBase + anchor;
+                                        auto& anchData = angularConstraints.anchData[ai];
+                                        const std::uint32_t& abi = anchData.anchIdx;
+                                        if (abi == UINT32_MAX)
+                                            continue;
+
+                                        const float invInertiaA = physicsBones.invInertia[abi];
+                                        const float wSum = invInertiaA + invInertia;
+                                        if (wSum <= FloatPrecision)
+                                            continue;
+
+                                        const Quaternion target = DirectX::XMQuaternionMultiply(anchData.restRot, physicsBones.predRot[abi]);
+                                        const Quaternion targetInv = DirectX::XMQuaternionConjugate(target);
+                                        const Quaternion diff = DirectX::XMQuaternionMultiply(targetInv, physicsBones.predRot[bi]);
+                                        Vector omega = DirectX::XMVectorGetW(diff) < 0.0f ? DirectX::XMVectorNegate(diff) : diff;
+                                        omega = DirectX::XMVectorSetW(omega, 0.0f);
+                                        const float CSq = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(omega));
+                                        if (CSq <= FloatPrecision)
+                                            continue;
+
+                                        const float C = std::sqrt(CSq);
+                                        const float currentComp = anchData.compliance;
+                                        const float currentLimit = anchData.limit;
+                                        float currentFactor = 1.0f;
+                                        if (FloatPrecision < currentLimit)
+                                        {
+                                            const float ratio = std::min(std::abs(C) / currentLimit, 1.0f);
+                                            const float ratioCubic = ratio * ratio * ratio;
+                                            currentFactor = std::max(1.0f - ratioCubic, FloatPrecision);
+                                        }
+                                        const float alphaProxy = (currentComp * currentFactor) * invDtSq;
+                                        const float denom = wSum + alphaProxy;
+                                        float deltaLambda = 1.0f;
+                                        if (initLambda)
+                                        {
+                                            deltaLambda = -C / denom;
+                                            anchData.lambda = deltaLambda;
+                                        }
+                                        else
+                                        {
+                                            deltaLambda = (-C - (alphaProxy * anchData.lambda)) / denom;
+                                            anchData.lambda += deltaLambda;
+                                        }
+
+                                        const Vector correctionDir = DirectX::XMVectorScale(omega, 1.0f / C);
+                                        {
+                                            const Vector correction = DirectX::XMVectorScale(correctionDir, deltaLambda);
+                                            if (invInertiaA > FloatPrecision)
+                                            {
+                                                const Vector thetaA = DirectX::XMVectorSetW(DirectX::XMVectorScale(correction, -invInertiaA), 0.0f);
+                                                const Vector dqA = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[abi], thetaA), vHalf);
+                                                physicsBones.predRot[abi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[abi], dqA));
+                                            }
+                                            const Vector theta = DirectX::XMVectorSetW(DirectX::XMVectorScale(correction, invInertia), 0.0f);
+                                            const Vector dq = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], theta), vHalf);
+                                            physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[bi], dq));
+                                        }
+
+                                        const float damping = anchData.damping;
+                                        if (FloatPrecision < damping)
+                                        {
+                                            Quaternion dqBi = DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], DirectX::XMQuaternionConjugate(physicsBones.rot[bi]));
+                                            if (DirectX::XMVectorGetW(dqBi) < 0.0f)
+                                                dqBi = DirectX::XMVectorNegate(dqBi);
+                                            const Vector angVelBi = DirectX::XMVectorSetW(DirectX::XMVectorScale(dqBi, 2.0f), 0.0f);
+
+                                            Quaternion dqAbi = DirectX::XMQuaternionMultiply(physicsBones.predRot[abi], DirectX::XMQuaternionConjugate(physicsBones.rot[abi]));
+                                            if (DirectX::XMVectorGetW(dqAbi) < 0.0f)
+                                                dqAbi = DirectX::XMVectorNegate(dqAbi);
+                                            const Vector angVelAbi = DirectX::XMVectorSetW(DirectX::XMVectorScale(dqAbi, 2.0f), 0.0f);
+
+                                            const Vector relAngVel = DirectX::XMVectorSubtract(angVelBi, angVelAbi);
+                                            const float relAngVelDot = DirectX::XMVectorGetX(DirectX::XMVector3Dot(relAngVel, correctionDir));
+                                            const float angDampLambda = (-relAngVelDot * damping) / wSum;
+                                            const Vector dampCorrection = DirectX::XMVectorScale(correctionDir, angDampLambda);
+
+                                            if (FloatPrecision < invInertiaA)
+                                            {
+                                                const Vector thetaA = DirectX::XMVectorSetW(DirectX::XMVectorScale(dampCorrection, -invInertiaA), 0.0f);
+                                                const Vector dqA = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[abi], thetaA), vHalf);
+                                                physicsBones.predRot[abi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[abi], dqA));
+                                            }
+                                            const Vector theta = DirectX::XMVectorSetW(DirectX::XMVectorScale(dampCorrection, invInertia), 0.0f);
+                                            const Vector dq = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], theta), vHalf);
+                                            physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[bi], dq));
+                                        }
+                                    }
+                                }
+                                ccgi++;
+                            }
+                        }
+                    },
+                    tbb::auto_partitioner()
+                );
+            } });
+        TIMELOG_END;
+    }
+
+    void XPBDWorld::SolveRestPoseConstraints(const float deltaTime, const bool initLambda)
+    {
+        if (physicsBonesGroup.empty())
+            return;
+        TIMELOG_START;
+        const float invDtSq = 1.0f / (deltaTime * deltaTime);
+        const std::uint32_t groups = physicsBonesGroup.size() - 1ull;
+        tbb::parallel_for(
+            tbb::blocked_range<std::uint32_t>(0, groups),
+            [&](const tbb::blocked_range<std::uint32_t>& r) {
+                for (std::uint32_t g = r.begin(); g != r.end(); ++g)
+                {
+                    const std::uint32_t begin = physicsBonesGroup[g];
+                    const std::uint32_t end = physicsBonesGroup[g + 1];
+                    if (begin >= end)
+                        continue;
+                    const std::uint32_t oi = physicsBones.objIdx[begin];
+                    if (oi == UINT32_MAX || objectDatas.isDisable[oi])
+                        continue;
+
+                    for (std::uint32_t bi = begin; bi < end; ++bi)
+                    {
+                        const std::uint32_t pbi = physicsBones.parentBoneIdx[bi];
+                        if (pbi == UINT32_MAX)
+                            continue;
+
+                        const float wBi = physicsBones.invMass[bi];
+                        const float wPbi = physicsBones.invMass[pbi];
+                        const float invInertiaBi = physicsBones.invInertia[bi];
+                        const float invInertiaPbi = physicsBones.invInertia[pbi];
+                        if (wBi + wPbi + invInertiaBi + invInertiaPbi <= FloatPrecision)
+                            continue;
+
+                        if (const float limit = physicsBones.restPoseLimit[bi]; FloatPrecision < limit && FloatPrecision < wBi + wPbi)
+                        {
+                            const float wSum = wBi + wPbi;
+
+                            const Vector parentPos = physicsBones.pred[pbi];
+                            const Quaternion parentRot = physicsBones.predRot[pbi];
+                            const float parentScale = physicsBones.worldScale[pbi];
+
+                            const Vector localPos = ToVector(physicsBones.orgLocalPos[bi]);
+                            const Vector scaledLocalPos = DirectX::XMVectorScale(localPos, parentScale);
+                            const Vector rotatedLocalPos = DirectX::XMVector3Rotate(scaledLocalPos, parentRot);
+
+                            const Vector targetRestPos = DirectX::XMVectorAdd(parentPos, rotatedLocalPos);
+                            const Vector dir = DirectX::XMVectorSubtract(physicsBones.pred[bi], targetRestPos);
+                            const Vector distSqVec = DirectX::XMVector3LengthSq(dir);
+                            const float distSq = DirectX::XMVectorGetX(distSqVec);
+                            if (FloatPrecision < distSq)
+                            {
+                                const float currentDist = std::sqrt(distSq);
+                                const Vector normal = DirectX::XMVectorScale(dir, 1.0f / currentDist);
+                                const float ratio = std::min(currentDist / limit, 1.0f);
+                                const float ratioSq = ratio * ratio;
+                                const float ratioQuartic = ratioSq * ratioSq;
+                                const float ratioQuintic = ratioQuartic * ratioQuartic;
+                                const float currentFactor = std::max(1.0f - ratioQuartic, FloatPrecision);
+
+                                const float compliance = physicsBones.restPoseCompliance[bi];
+                                const float alphaProxy = (compliance * currentFactor) * invDtSq;
+                                const float denom = wSum + alphaProxy;
+
+                                float deltaLambda = 0.0f;
+                                if (initLambda)
+                                {
+                                    deltaLambda = -currentDist / denom;
+                                    physicsBones.restPoseLambda[bi] = deltaLambda;
+                                }
+                                else
+                                {
+                                    deltaLambda = (-currentDist - (alphaProxy * physicsBones.restPoseLambda[bi])) / denom;
+                                    physicsBones.restPoseLambda[bi] += deltaLambda;
+                                }
+
+                                const float correctionMagBi = deltaLambda * wBi;
+                                physicsBones.pred[bi] = DirectX::XMVectorAdd(physicsBones.pred[bi], DirectX::XMVectorScale(normal, correctionMagBi));
+                                if (FloatPrecision < wPbi)
+                                {
+                                    const float correctionMagPbi = deltaLambda * wPbi;
+                                    physicsBones.pred[pbi] = DirectX::XMVectorSubtract(physicsBones.pred[pbi], DirectX::XMVectorScale(normal, correctionMagPbi));
+                                }
+                            }
+                        }
+
+                        if (const float limit = physicsBones.restPoseAngularLimit[bi]; 
+                            FloatPrecision < limit && FloatPrecision < invInertiaBi + invInertiaPbi)
+                        {
+                            const float wSum = invInertiaBi + invInertiaPbi;
+
+                            const Quaternion parentRot = physicsBones.predRot[pbi];
+                            const Quaternion localRestRot = ToQuaternion(physicsBones.orgLocalRot[bi]);
+                            const Quaternion targetRestRot = DirectX::XMQuaternionMultiply(localRestRot, parentRot);
+
+                            const Quaternion targetInv = DirectX::XMQuaternionConjugate(targetRestRot);
+                            const Quaternion diff = DirectX::XMQuaternionMultiply(targetInv, physicsBones.predRot[bi]);
+
+                            Vector omega = DirectX::XMVectorGetW(diff) < 0.0f ? DirectX::XMVectorNegate(diff) : diff;
+                            omega = DirectX::XMVectorSetW(omega, 0.0f);
+                            const float CSq = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(omega));
+                            if (FloatPrecision < CSq)
+                            {
+                                const float C = std::sqrt(CSq);
+                                const float ratio = std::min(C / limit, 1.0f);
+                                const float ratioSq = ratio * ratio;
+                                const float ratioQuartic = ratioSq * ratioSq;
+                                const float ratioQuintic = ratioQuartic * ratioQuartic;
+                                const float currentFactor = std::max(1.0f - ratioQuintic, 0.001f);
+
+                                const float compliance = physicsBones.restPoseAngularCompliance[bi];
+                                const float alphaProxy = (compliance * currentFactor) * invDtSq;
+                                const float denom = wSum + alphaProxy;
+
+                                float deltaLambda = 0.0f;
+                                if (initLambda)
+                                {
+                                    deltaLambda = -C / denom;
+                                    physicsBones.restPoseAngularLambda[bi] = deltaLambda;
+                                }
+                                else
+                                {
+                                    deltaLambda = (-C - (alphaProxy * physicsBones.restPoseAngularLambda[bi])) / denom;
+                                    physicsBones.restPoseAngularLambda[bi] += deltaLambda;
+                                }
+
+                                const Vector correctionDir = DirectX::XMVectorScale(omega, 1.0f / C);
+                                const Vector correction = DirectX::XMVectorScale(correctionDir, deltaLambda);
+
+                                if (invInertiaBi > FloatPrecision)
+                                {
+                                    const Vector theta = DirectX::XMVectorSetW(DirectX::XMVectorScale(correction, invInertiaBi), 0.0f);
+                                    const Vector dq = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[bi], theta), vHalf);
+                                    physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[bi], dq));
+                                }
+
+                                if (invInertiaPbi > FloatPrecision)
+                                {
+                                    const Vector thetaP = DirectX::XMVectorSetW(DirectX::XMVectorScale(correction, -invInertiaPbi), 0.0f);
+                                    const Vector dqP = DirectX::XMVectorMultiply(DirectX::XMQuaternionMultiply(physicsBones.predRot[pbi], thetaP), vHalf);
+                                    physicsBones.predRot[pbi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(physicsBones.predRot[pbi], dqP));
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            tbb::auto_partitioner());
         TIMELOG_END;
     }
 
@@ -2465,13 +2762,13 @@ namespace MXPBD
                             else
                                 currentDir = DirectX::XMVector3Normalize(currentDir);
 
-                            const Vector dot = DirectX::XMVector3Dot(restDir, currentDir);
+                            const float dot = DirectX::XMVectorGetX(DirectX::XMVector3Dot(restDir, currentDir));
                             Vector target;
-                            if (DirectX::XMVector3Less(dot, vDotOppositeThreshold))
+                            if (dot < -0.9999f)
                             {
                                 Vector vUp = vYone;
-                                const Vector dotUp = DirectX::XMVector3Dot(restDir, vUp);
-                                if (DirectX::XMVector3Less(DirectX::XMVectorAbs(dotUp), vAxisOverlapLimit))
+                                const float dotUp = DirectX::XMVectorGetX(DirectX::XMVector3Dot(restDir, vUp));
+                                if (dotUp < -0.99f)
                                     vUp = vXone;
 
                                 const Vector axis = DirectX::XMVector3Normalize(DirectX::XMVector3Cross(vUp, restDir));
@@ -2480,7 +2777,7 @@ namespace MXPBD
                             else
                             {
                                 const Vector rotationAxis = DirectX::XMVector3Cross(restDir, currentDir);
-                                const Vector lookAt = DirectX::XMQuaternionNormalize(DirectX::XMVectorSetW(rotationAxis, DirectX::XMVectorGetX(dot) + 1.0f));
+                                const Vector lookAt = DirectX::XMQuaternionNormalize(DirectX::XMVectorSetW(rotationAxis, dot + 1.0f));
                                 target = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionMultiply(qOriginal, lookAt));
                             }
                             const Vector final = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionSlerp(qOriginal, target, physicsBones.rotationRatio[bi]));
@@ -2496,6 +2793,7 @@ namespace MXPBD
                         // prevents memory write skips by compiler optimization
                         std::memcpy(&node->local.translate, &localPos, sizeof(localPos));
                         std::memcpy(&node->local.rotate, &localRot, sizeof(localRot));
+
                         std::memcpy(&node->world.translate, &physicsWorldPos, sizeof(physicsWorldPos));
                         std::memcpy(&node->world.rotate, &finalWorldRot, sizeof(finalWorldRot));
                     }
@@ -2509,42 +2807,65 @@ namespace MXPBD
     AABB XPBDWorld::GetObjectAABB(const std::uint32_t objIdx) const
     {
         AABB bounds = AABB();
-        bool hasColliders = false;
+        bool isFirst = false;
 
-        if (collidersGroup.empty())
-            return bounds;
-
-        const std::uint32_t groups = collidersGroup.size() - 1ull;
-        for (std::uint32_t g = 0; g < groups; ++g)
+        if (!collidersGroup.empty())
         {
-            std::uint32_t begin = collidersGroup[g];
-            std::uint32_t end = collidersGroup[g + 1];
-            if (colliders.objIdx[begin] != objIdx)
-                continue;
-            if (begin >= end || end - begin == 0)
-                break;
-            for (std::uint32_t ci = begin; ci < end; ++ci)
+            const std::uint32_t groups = collidersGroup.size() - 1ull;
+            for (std::uint32_t g = 0; g < groups; ++g)
             {
-                const std::uint32_t bi = colliders.boneIdx[ci];
-                if (bi == UINT32_MAX)
+                std::uint32_t begin = collidersGroup[g];
+                std::uint32_t end = collidersGroup[g + 1];
+                if (colliders.objIdx[begin] != objIdx)
                     continue;
-
-                const Vector worldCenter = DirectX::XMVectorAdd(physicsBones.pred[bi], DirectX::XMVector3Rotate(DirectX::XMVectorScale(colliders.boundingSphereCenter[ci], physicsBones.worldScale[bi]), physicsBones.predRot[bi]));
-                const float scaledRadius = colliders.boundingSphere[ci] * physicsBones.worldScale[bi] + physicsBones.collisionMargin[bi];
-                const Vector vScaledRadius = DirectX::XMVectorReplicate(scaledRadius);
-                AABB scaledAABB(DirectX::XMVectorSubtract(worldCenter, vScaledRadius), DirectX::XMVectorAdd(worldCenter, vScaledRadius));
-                if (!hasColliders)
+                if (begin >= end)
+                    break;
+                for (std::uint32_t ci = begin; ci < end; ++ci)
                 {
-                    bounds = scaledAABB;
-                    hasColliders = true;
+                    const std::uint32_t bi = colliders.boneIdx[ci];
+                    if (bi == UINT32_MAX)
+                        continue;
+
+                    const Vector worldCenter = DirectX::XMVectorAdd(physicsBones.pred[bi], DirectX::XMVector3Rotate(DirectX::XMVectorScale(colliders.boundingSphereCenter[ci], physicsBones.worldScale[bi]), physicsBones.predRot[bi]));
+                    const float scaledRadius = colliders.boundingSphere[ci] * physicsBones.worldScale[bi] + physicsBones.collisionMargin[bi];
+                    const Vector vScaledRadius = DirectX::XMVectorReplicate(scaledRadius);
+                    AABB scaledAABB(DirectX::XMVectorSubtract(worldCenter, vScaledRadius), DirectX::XMVectorAdd(worldCenter, vScaledRadius));
+                    if (!isFirst)
+                    {
+                        bounds = scaledAABB;
+                        isFirst = true;
+                    }
+                    else
+                        bounds = bounds.Merge(scaledAABB);
                 }
-                else
-                    bounds = bounds.Merge(scaledAABB);
+                break;
             }
-            break;
         }
-        if (!hasColliders)
-            return AABB();
+        else if (!physicsBonesGroup.empty()) // generate AABB that objects without collider for object culling
+        {
+            const std::uint32_t groups = physicsBonesGroup.size() - 1ull;
+            for (std::uint32_t g = 0; g < groups; ++g)
+            {
+                std::uint32_t begin = physicsBonesGroup[g];
+                std::uint32_t end = physicsBonesGroup[g + 1];
+                if (physicsBones.objIdx[begin] != objIdx)
+                    continue;
+                if (begin >= end)
+                    break;
+                for (std::uint32_t bi = begin; bi < end; ++bi)
+                {
+                    AABB boneAABB(physicsBones.pred[bi], physicsBones.pred[bi]);
+                    if (!isFirst)
+                    {
+                        bounds = boneAABB;
+                        isFirst = true;
+                    }
+                    else
+                        bounds = bounds.Merge(boneAABB);
+                }
+                break;
+            }
+        }
         return bounds;
     }
 
@@ -3619,10 +3940,18 @@ namespace MXPBD
         physicsBones.offset.reserve(n);
         physicsBones.invMass.reserve(n);
 
+        physicsBones.restPoseLimit.reserve(n);
+        physicsBones.restPoseCompliance.reserve(n);
+        physicsBones.restPoseLambda.reserve(n);
+
+        physicsBones.restPoseAngularLimit.reserve(n);
+        physicsBones.restPoseAngularCompliance.reserve(n);
+        physicsBones.restPoseAngularLambda.reserve(n);
+
         physicsBones.linearRotTorque.reserve(n);
 
         physicsBones.collisionMargin.reserve(n);
-        physicsBones.colShrink.reserve(n);
+        physicsBones.collisionShrink.reserve(n);
         physicsBones.collisionFriction.reserve(n);
         physicsBones.collisionRotationBias.reserve(n);
         physicsBones.collisionCompliance.reserve(n);
@@ -3668,10 +3997,18 @@ namespace MXPBD
         physicsBones.offset.push_back({0, 0, 0});
         physicsBones.invMass.push_back(0);
 
+        physicsBones.restPoseLimit.push_back(0);
+        physicsBones.restPoseCompliance.push_back(0);
+        physicsBones.restPoseLambda.push_back(0);
+
+        physicsBones.restPoseAngularLimit.push_back(0);
+        physicsBones.restPoseAngularCompliance.push_back(0);
+        physicsBones.restPoseAngularLambda.push_back(0);
+
         physicsBones.linearRotTorque.push_back(0);
 
         physicsBones.collisionMargin.push_back(0);
-        physicsBones.colShrink.push_back(0);
+        physicsBones.collisionShrink.push_back(0);
         physicsBones.collisionFriction.push_back(0);
         physicsBones.collisionRotationBias.push_back(0);
         physicsBones.collisionCompliance.push_back(0);
@@ -3706,17 +4043,7 @@ namespace MXPBD
         constraints.colorGraph.reserve(n);
         constraints.numAnchors.reserve(n);
         const std::uint32_t an = n * ANCHOR_MAX;
-        constraints.anchIdx.reserve(an);
-        constraints.restLen.reserve(an);
-        constraints.compSquish.reserve(an);
-        constraints.compStretch.reserve(an);
-        constraints.squishLimit.reserve(an);
-        constraints.stretchLimit.reserve(an);
-        constraints.angularLimit.reserve(an);
-        constraints.restDirLocal.reserve(an);
-        constraints.squishDamping.reserve(an);
-        constraints.stretchDamping.reserve(an);
-        constraints.lambda.reserve(an);
+        constraints.anchData.reserve(an);
     }
     std::uint32_t XPBDWorld::AllocateConstraint()
     {
@@ -3728,17 +4055,7 @@ namespace MXPBD
         constraints.numAnchors.push_back(0);
         for (std::uint32_t i = 0; i < ANCHOR_MAX; ++i)
         {
-            constraints.anchIdx.push_back(UINT32_MAX);
-            constraints.restLen.push_back(0.0f);
-            constraints.compSquish.push_back(0.0f);
-            constraints.compStretch.push_back(0.0f);
-            constraints.squishLimit.push_back(0.0f);
-            constraints.stretchLimit.push_back(0.0f);
-            constraints.angularLimit.push_back(0.0f);
-            constraints.restDirLocal.push_back(vZero);
-            constraints.squishDamping.push_back(0.0f);
-            constraints.stretchDamping.push_back(0.0f);
-            constraints.lambda.push_back(0.0f);
+            constraints.anchData.push_back({});
         }
         return newIdx;
     }
@@ -3754,12 +4071,7 @@ namespace MXPBD
         angularConstraints.colorGraph.reserve(n);
         angularConstraints.numAnchors.reserve(n);
         const std::uint32_t an = n * ANCHOR_MAX;
-        angularConstraints.anchIdx.reserve(an);
-        angularConstraints.restRot.reserve(an);
-        angularConstraints.comp.reserve(an);
-        angularConstraints.limit.reserve(an);
-        angularConstraints.damping.reserve(an);
-        angularConstraints.lambda.reserve(an);
+        angularConstraints.anchData.reserve(an);
     }
     std::uint32_t XPBDWorld::AllocateAngularConstraint()
     {
@@ -3771,12 +4083,7 @@ namespace MXPBD
         angularConstraints.numAnchors.push_back(0);
         for (std::uint32_t i = 0; i < ANCHOR_MAX; ++i)
         {
-            angularConstraints.anchIdx.push_back(UINT32_MAX);
-            angularConstraints.restRot.push_back(vZero);
-            angularConstraints.comp.push_back(0.0f);
-            angularConstraints.limit.push_back(0.0f);
-            angularConstraints.damping.push_back(0.0f);
-            angularConstraints.lambda.push_back(0.0f);
+            angularConstraints.anchData.push_back({});
         }
         return newIdx;
     }
@@ -3839,8 +4146,6 @@ namespace MXPBD
                     const std::uint32_t objIdxB = physicsBones.objIdx[b];
                     if (objIdxA != objIdxB)
                         return objIdxA < objIdxB;
-                    if (objIdxA != UINT32_MAX && objIdxB != UINT32_MAX && objectDatas.isDisable[objIdxA] != objectDatas.isDisable[objIdxB])
-                        return objectDatas.isDisable[objIdxA] < objectDatas.isDisable[objIdxB];
                     if (physicsBones.rootIdx[a] != physicsBones.rootIdx[b])
                         return physicsBones.rootIdx[a] < physicsBones.rootIdx[b];
                     if (physicsBones.depth[a] != physicsBones.depth[b])
@@ -3913,10 +4218,18 @@ namespace MXPBD
                                 physicsBones.offset[i] = tmpPhysicsBones.offset[srcIdx];
                                 physicsBones.invMass[i] = tmpPhysicsBones.invMass[srcIdx];
 
+                                physicsBones.restPoseLimit[i] = tmpPhysicsBones.restPoseLimit[srcIdx];
+                                physicsBones.restPoseCompliance[i] = tmpPhysicsBones.restPoseCompliance[srcIdx];
+                                physicsBones.restPoseLambda[i] = tmpPhysicsBones.restPoseLambda[srcIdx];
+
+                                physicsBones.restPoseAngularLimit[i] = tmpPhysicsBones.restPoseAngularLimit[srcIdx];
+                                physicsBones.restPoseAngularCompliance[i] = tmpPhysicsBones.restPoseAngularCompliance[srcIdx];
+                                physicsBones.restPoseAngularLambda[i] = tmpPhysicsBones.restPoseAngularLambda[srcIdx];
+
                                 physicsBones.linearRotTorque[i] = tmpPhysicsBones.linearRotTorque[srcIdx];
 
                                 physicsBones.collisionMargin[i] = tmpPhysicsBones.collisionMargin[srcIdx];
-                                physicsBones.colShrink[i] = tmpPhysicsBones.colShrink[srcIdx];
+                                physicsBones.collisionShrink[i] = tmpPhysicsBones.collisionShrink[srcIdx];
                                 physicsBones.collisionFriction[i] = tmpPhysicsBones.collisionFriction[srcIdx];
                                 physicsBones.collisionRotationBias[i] = tmpPhysicsBones.collisionRotationBias[srcIdx];
                                 physicsBones.collisionCompliance[i] = tmpPhysicsBones.collisionCompliance[srcIdx];
@@ -3936,7 +4249,8 @@ namespace MXPBD
                                 physicsBones.orgLocalRot[i] = tmpPhysicsBones.orgLocalRot[srcIdx];
                             }
                         },
-                        tbb::static_partitioner());
+                        tbb::static_partitioner()
+                    );
 
                     physicsBones.pos.resize(validCount);
                     physicsBones.pred.resize(validCount);
@@ -3956,10 +4270,18 @@ namespace MXPBD
                     physicsBones.offset.resize(validCount);
                     physicsBones.invMass.resize(validCount);
 
+                    physicsBones.restPoseLimit.resize(validCount);
+                    physicsBones.restPoseCompliance.resize(validCount);
+                    physicsBones.restPoseLambda.resize(validCount);
+
+                    physicsBones.restPoseAngularLimit.resize(validCount);
+                    physicsBones.restPoseAngularCompliance.resize(validCount);
+                    physicsBones.restPoseAngularLambda.resize(validCount);
+
                     physicsBones.linearRotTorque.resize(validCount);
 
                     physicsBones.collisionMargin.resize(validCount);
-                    physicsBones.colShrink.resize(validCount);
+                    physicsBones.collisionShrink.resize(validCount);
                     physicsBones.collisionFriction.resize(validCount);
                     physicsBones.collisionRotationBias.resize(validCount);
                     physicsBones.collisionCompliance.resize(validCount);
@@ -4004,8 +4326,8 @@ namespace MXPBD
                             for (std::uint32_t a = 0; a < ANCHOR_MAX; ++a)
                             {
                                 std::uint32_t ai = static_cast<std::uint32_t>(i) * ANCHOR_MAX + a;
-                                if (constraints.anchIdx[ai] != UINT32_MAX)
-                                    constraints.anchIdx[ai] = oldToNewBoneIdx[constraints.anchIdx[ai]];
+                                if (constraints.anchData[ai].anchIdx != UINT32_MAX)
+                                    constraints.anchData[ai].anchIdx = oldToNewBoneIdx[constraints.anchData[ai].anchIdx];
                             }
                         }
                     },
@@ -4018,8 +4340,8 @@ namespace MXPBD
                             for (std::uint32_t a = 0; a < ANCHOR_MAX; ++a)
                             {
                                 std::uint32_t ai = static_cast<std::uint32_t>(i) * ANCHOR_MAX + a;
-                                if (angularConstraints.anchIdx[ai] != UINT32_MAX)
-                                    angularConstraints.anchIdx[ai] = oldToNewBoneIdx[angularConstraints.anchIdx[ai]];
+                                if (angularConstraints.anchData[ai].anchIdx != UINT32_MAX)
+                                    angularConstraints.anchData[ai].anchIdx = oldToNewBoneIdx[angularConstraints.anchData[ai].anchIdx];
                             }
                         }
                     },
@@ -4053,8 +4375,6 @@ namespace MXPBD
                         const std::uint32_t objIdxB = constraints.objIdx[b];
                         if (objIdxA != objIdxB)
                             return objIdxA < objIdxB;
-                        if (objIdxA != UINT32_MAX && objIdxB != UINT32_MAX && objectDatas.isDisable[objIdxA] != objectDatas.isDisable[objIdxB])
-                            return objectDatas.isDisable[objIdxA] < objectDatas.isDisable[objIdxB];
                         if (constraints.rootIdx[a] != constraints.rootIdx[b])
                             return constraints.rootIdx[a] < constraints.rootIdx[b];
                         return constraints.boneIdx[a] < constraints.boneIdx[b];
@@ -4102,18 +4422,7 @@ namespace MXPBD
                                         {
                                             const std::uint32_t dstA = dstStrideBase + s;
                                             const std::uint32_t srcA = srcStrideBase + s;
-
-                                            constraints.anchIdx[dstA] = tmpConstraints.anchIdx[srcA];
-                                            constraints.restLen[dstA] = tmpConstraints.restLen[srcA];
-                                            constraints.compSquish[dstA] = tmpConstraints.compSquish[srcA];
-                                            constraints.compStretch[dstA] = tmpConstraints.compStretch[srcA];
-                                            constraints.squishLimit[dstA] = tmpConstraints.squishLimit[srcA];
-                                            constraints.stretchLimit[dstA] = tmpConstraints.stretchLimit[srcA];
-                                            constraints.angularLimit[dstA] = tmpConstraints.angularLimit[srcA];
-                                            constraints.restDirLocal[dstA] = tmpConstraints.restDirLocal[srcA];
-                                            constraints.squishDamping[dstA] = tmpConstraints.squishDamping[srcA];
-                                            constraints.stretchDamping[dstA] = tmpConstraints.stretchDamping[srcA];
-                                            constraints.lambda[dstA] = tmpConstraints.lambda[srcA];
+                                            constraints.anchData[dstA] = tmpConstraints.anchData[srcA];
                                         }
                                     }
                                 }
@@ -4127,17 +4436,7 @@ namespace MXPBD
                     constraints.numAnchors.resize(validCount);
 
                     const std::uint32_t validStrideCount = validCount * ANCHOR_MAX;
-                    constraints.anchIdx.resize(validStrideCount);
-                    constraints.restLen.resize(validStrideCount);
-                    constraints.compSquish.resize(validStrideCount);
-                    constraints.compStretch.resize(validStrideCount);
-                    constraints.squishLimit.resize(validStrideCount);
-                    constraints.stretchLimit.resize(validStrideCount);
-                    constraints.angularLimit.resize(validStrideCount);
-                    constraints.restDirLocal.resize(validStrideCount);
-                    constraints.squishDamping.resize(validStrideCount);
-                    constraints.stretchDamping.resize(validStrideCount);
-                    constraints.lambda.resize(validStrideCount);
+                    constraints.anchData.resize(validStrideCount);
 
                     constraints.numConstraints = validCount;
                     std::iota(constraintsOrder.begin(), constraintsOrder.end(), 0);
@@ -4153,8 +4452,6 @@ namespace MXPBD
                         const std::uint32_t objIdxB = angularConstraints.objIdx[b];
                         if (objIdxA != objIdxB)
                             return objIdxA < objIdxB;
-                        if (objIdxA != UINT32_MAX && objIdxB != UINT32_MAX && objectDatas.isDisable[objIdxA] != objectDatas.isDisable[objIdxB])
-                            return objectDatas.isDisable[objIdxA] < objectDatas.isDisable[objIdxB];
                         if (angularConstraints.rootIdx[a] != angularConstraints.rootIdx[b])
                             return angularConstraints.rootIdx[a] < angularConstraints.rootIdx[b];
                         return angularConstraints.boneIdx[a] < angularConstraints.boneIdx[b];
@@ -4200,12 +4497,7 @@ namespace MXPBD
                                     {
                                         const std::uint32_t dstA = dstStrideBase + s;
                                         const std::uint32_t srcA = srcStrideBase + s;
-                                        angularConstraints.anchIdx[dstA] = tmpAngCons.anchIdx[srcA];
-                                        angularConstraints.restRot[dstA] = tmpAngCons.restRot[srcA];
-                                        angularConstraints.comp[dstA] = tmpAngCons.comp[srcA];
-                                        angularConstraints.limit[dstA] = tmpAngCons.limit[srcA];
-                                        angularConstraints.damping[dstA] = tmpAngCons.damping[srcA];
-                                        angularConstraints.lambda[dstA] = tmpAngCons.lambda[srcA];
+                                        angularConstraints.anchData[dstA] = tmpAngCons.anchData[srcA];
                                     }
                                 }
                             },
@@ -4218,12 +4510,7 @@ namespace MXPBD
                         angularConstraints.numAnchors.resize(validCount);
 
                         const std::uint32_t validStrideCount = validCount * ANCHOR_MAX;
-                        angularConstraints.anchIdx.resize(validStrideCount);
-                        angularConstraints.restRot.resize(validStrideCount);
-                        angularConstraints.comp.resize(validStrideCount);
-                        angularConstraints.limit.resize(validStrideCount);
-                        angularConstraints.damping.resize(validStrideCount);
-                        angularConstraints.lambda.resize(validStrideCount);
+                        angularConstraints.anchData.resize(validStrideCount);
                     }
 
                     angularConstraints.numConstraints = validCount;
@@ -4244,8 +4531,6 @@ namespace MXPBD
                         const std::uint32_t objIdxB = colliders.objIdx[b];
                         if (objIdxA != objIdxB)
                             return objIdxA < objIdxB;
-                        if (objIdxA != UINT32_MAX && objIdxB != UINT32_MAX && objectDatas.isDisable[objIdxA] != objectDatas.isDisable[objIdxB])
-                            return objectDatas.isDisable[objIdxA] < objectDatas.isDisable[objIdxB];
                         if (colliders.rootIdx[a] != colliders.rootIdx[b])
                             return colliders.rootIdx[a] < colliders.rootIdx[b];
                         if (physicsBones.depth[biA] != physicsBones.depth[biB])
@@ -4381,7 +4666,7 @@ namespace MXPBD
                         const std::uint32_t aiBase = ci * ANCHOR_MAX;
                         for (std::uint32_t a = 0; a < constraints.numAnchors[ci]; ++a)
                         {
-                            std::uint32_t anchIdx = constraints.anchIdx[aiBase + a];
+                            std::uint32_t anchIdx = constraints.anchData[aiBase + a].anchIdx;
                             if (anchIdx < numBones)
                             {
                                 boneToConsIdx[anchIdx].push_back(ci);
@@ -4413,7 +4698,7 @@ namespace MXPBD
                         const std::uint32_t aiBase = ci * ANCHOR_MAX;
                         for (std::uint32_t a = 0; a < constraints.numAnchors[ci]; ++a)
                         {
-                            markUsed(constraints.anchIdx[aiBase + a]);
+                            markUsed(constraints.anchData[aiBase + a].anchIdx);
                         }
 
                         std::uint32_t color = 0;
@@ -4454,18 +4739,7 @@ namespace MXPBD
                                 {
                                     const std::uint32_t dstA = dstStrideBase + s;
                                     const std::uint32_t srcA = srcStrideBase + s;
-
-                                    constraints.anchIdx[dstA] = tmpConstraints.anchIdx[srcA];
-                                    constraints.restLen[dstA] = tmpConstraints.restLen[srcA];
-                                    constraints.compSquish[dstA] = tmpConstraints.compSquish[srcA];
-                                    constraints.compStretch[dstA] = tmpConstraints.compStretch[srcA];
-                                    constraints.squishLimit[dstA] = tmpConstraints.squishLimit[srcA];
-                                    constraints.stretchLimit[dstA] = tmpConstraints.stretchLimit[srcA];
-                                    constraints.angularLimit[dstA] = tmpConstraints.angularLimit[srcA];
-                                    constraints.restDirLocal[dstA] = tmpConstraints.restDirLocal[srcA];
-                                    constraints.squishDamping[dstA] = tmpConstraints.squishDamping[srcA];
-                                    constraints.stretchDamping[dstA] = tmpConstraints.stretchDamping[srcA];
-                                    constraints.lambda[dstA] = tmpConstraints.lambda[srcA];
+                                    constraints.anchData[dstA] = tmpConstraints.anchData[srcA];
                                 }
                             }
                         },
@@ -4517,7 +4791,7 @@ namespace MXPBD
                         const std::uint32_t aiBase = ci * ANCHOR_MAX;
                         for (std::uint32_t a = 0; a < angularConstraints.numAnchors[ci]; ++a)
                         {
-                            const std::uint32_t abi = angularConstraints.anchIdx[aiBase + a];
+                            const std::uint32_t abi = angularConstraints.anchData[aiBase + a].anchIdx;
                             if (abi < numBones)
                             {
                                 boneToAngConsIdx[abi].push_back(ci);
@@ -4549,7 +4823,7 @@ namespace MXPBD
                         const std::uint32_t aiBase = ci * ANCHOR_MAX;
                         for (std::uint32_t a = 0; a < angularConstraints.numAnchors[ci]; ++a)
                         {
-                            markUsed(angularConstraints.anchIdx[aiBase + a]);
+                            markUsed(angularConstraints.anchData[aiBase + a].anchIdx);
                         }
 
                         std::uint32_t color = 0;
@@ -4590,13 +4864,7 @@ namespace MXPBD
                                 {
                                     const std::uint32_t dstA = dstStrideBase + s;
                                     const std::uint32_t srcA = srcStrideBase + s;
-
-                                    angularConstraints.anchIdx[dstA] = tmpAngCons.anchIdx[srcA];
-                                    angularConstraints.restRot[dstA] = tmpAngCons.restRot[srcA];
-                                    angularConstraints.comp[dstA] = tmpAngCons.comp[srcA];
-                                    angularConstraints.limit[dstA] = tmpAngCons.limit[srcA];
-                                    angularConstraints.damping[dstA] = tmpAngCons.damping[srcA];
-                                    angularConstraints.lambda[dstA] = tmpAngCons.lambda[srcA];
+                                    angularConstraints.anchData[dstA] = tmpAngCons.anchData[srcA];
                                 }
                             }
                         },

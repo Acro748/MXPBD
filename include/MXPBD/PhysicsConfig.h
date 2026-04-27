@@ -17,13 +17,21 @@ namespace MXPBD {
             float restitution = 0.0f;
             float rotationRatio = 0.1f;
             float gravity = 1.0f;
+
+            float restPoseLimit = 0.0f;
+            float restPoseCompliance = 0.0f;
+
+            float restPoseAngularLimit = 0.0f;
+            float restPoseAngularCompliance = 0.0f;
+
+            float linearRotTorque = 0.0f;
+
             RE::NiPoint3 offset = pZero;
+
             float collisionMargin = 0.5f;
             float collisionFriction = 0.0f;
             float collisionRotationBias = 0.05f;
             float collisionCompliance = 0.0001f;
-
-            float linearRotTorque = 0.0f;
 
             // particle
             std::uint8_t isParticle = 0;
@@ -57,18 +65,77 @@ namespace MXPBD {
         };
         ConvexHullColliders convexHullColliders;
     };
+    class PhysicsConfigReader {
+    public:
+        [[nodiscard]] static PhysicsConfigReader& GetSingleton() {
+            static PhysicsConfigReader instance;
+            return instance;
+        }
 
-    void CreateParent(RE::NiNode* rootNode, PhysicsInput& input);
-    void CreateOriginal(RE::NiNode* rootNode, PhysicsInput& input);
-    void CreateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas);
-    void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas);
+        void CreateParent(RE::NiNode* rootNode, PhysicsInput& input) const;
+        void CreateOriginal(RE::NiNode* rootNode, PhysicsInput& input) const;
+        void CreateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas) const;
+        void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas) const;
 
-    bool GetPhysicsInput(const std::string& file, PhysicsInput& input);
-    bool GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input);
+        struct ConstraintData {
+            float complianceSquish = 0.0f;
+            float complianceStretch = 0.0f;
+            float squishLimit = 0.0f;
+            float stretchLimit = 0.0f;
+            float angularLimit = 0.0f;
+            float squishDamping = 0.0f;
+            float stretchDamping = 0.0f;
+        };
+        struct AngularConstraintData {
+            float compliance = 0.0f;
+            float limit = 0.0f;
+            float damping = 0.0f;
+        };
 
-    bool ConvertSMPConfig(const std::string& file, PhysicsInput& input);
-    bool ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input);
+        bool GetPhysicsInput(const std::string& file, PhysicsInput& input) const;
+        bool GetPhysicsInput(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input) const;
 
-    void FixBoneName(PhysicsInput& input, const RenameStringMap& map);
+        PhysicsInput::Bone defaultSMPBone = {
+            .mass = 0.0f,
+            .damping = 0.1f,
+            .inertiaScale = 0.1f,
+            .restitution = 0.1f,
+            .rotationRatio = 0.1f,
+            .gravity = 1.0f,
+            .linearRotTorque = 0.0f,
+            .offset = pZero,
+            .collisionMargin = 0.0f,
+            .collisionFriction = 0.0f,
+            .collisionRotationBias = 0.1f,
+            .collisionCompliance = 0.0001f,
+        };
+        ConstraintData defaultSMPLinearCons = {
+            .complianceSquish = 0.001f,
+            .complianceStretch = 0.001f,
+            .squishLimit = 0.0f,
+            .stretchLimit = 0.0f,
+            .angularLimit = 0.0f,
+            .squishDamping = 0.0f,
+            .stretchDamping = 0.0f
+        };
+        AngularConstraintData defaultSMPAngularCons = {
+            .compliance = 0.001f,
+            .limit = 0.0f,
+            .damping = 0.0f
+        };
+        void SetDefaultSMPConfig(const std::string& file);
+        bool ConvertSMPConfig(const std::string& file, PhysicsInput& input) const;
+        bool ConvertSMPConfig(tinyxml2::XMLElement* root, const std::string& file, PhysicsInput& input) const;
 
+        void FixBoneName(PhysicsInput& input, const RenameStringMap& map) const;
+
+    private:
+        void GetBoneData(const std::string& elemName, tinyxml2::XMLElement* elem, PhysicsInput::Bone& boneData) const;
+        void GetLinearConstraint(const std::string& elemName, tinyxml2::XMLElement* elem, ConstraintData& consData) const;
+        void GetAngularConstraint(const std::string& elemName, tinyxml2::XMLElement* elem, AngularConstraintData& consData) const;
+
+        void BoneLogging(const std::string& file, const std::string& name, const PhysicsInput::Bone& bone) const;
+        void LinearConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const ConstraintData& cons) const;
+        void AngularConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const AngularConstraintData& cons) const;
+    };
 } // namespace MXPBD

@@ -139,12 +139,20 @@ namespace Mus {
                 {
                     ValidBoneWeightThreshold = GetFloatValue(variableValue);
                 }
+                else if (variableName == "CullingDistance")
+                {
+                    CullingDistance = GetFloatValue(variableValue) * MXPBD::InverseScale_skyrimUnit;
+                }
+                else if (variableName == "ColliderHashTableSize")
+                {
+                    ColliderHashTableSize = GetUIntValue(variableValue);
+                }
 			}
         }
         return true;
     }
 
-    bool MultipleConfig::LoadSkeletonFile()
+    bool Config::LoadSkeletonFile()
     {
         std::string conditionPath = GetRuntimeSKSEDirectory();
         conditionPath += SKSE::PluginDeclaration::GetSingleton()->GetName().data();
@@ -196,13 +204,22 @@ namespace Mus {
                     ConditionRoot->QueryIntAttribute("priority", &condition.Priority);
                     logger::info("{} : priority {}", filename, condition.Priority);
 
-                    if (!MXPBD::GetPhysicsInput(root, filename, condition.setting))
+                    if (!MXPBD::PhysicsConfigReader::GetSingleton().GetPhysicsInput(root, filename, condition.setting))
                         return;
                     ConditionManager::GetSingleton().RegisterCondition(condition);
                 }
             },
             tbb::auto_partitioner()
         );
+        return true;
+    }
+
+    bool Config::LoadSMPDefaultConfig()
+    {
+        std::string configPath = GetRuntimeSKSEDirectory();
+        configPath += SKSE::PluginDeclaration::GetSingleton()->GetName().data();
+        configPath += "\\SMPDefault.xml";
+        MXPBD::PhysicsConfigReader::GetSingleton().SetDefaultSMPConfig(configPath);
         return true;
     }
 }

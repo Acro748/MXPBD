@@ -44,6 +44,12 @@ namespace MXPBD {
         inline void SetGroundDetectQuality(const std::uint32_t groundDetectQuality) {
             GROUND_DETECT_QUALITY = groundDetectQuality;
         }
+        inline void SetCullingDistance(const float cullingDistance) {
+            CULLING_DISTANCE_SQ = DirectX::XMVectorReplicate(cullingDistance * cullingDistance);
+        }
+        inline void SetColliderHashTableSize(const std::uint8_t colliderHashTableSize) {
+            COL_HASH_TABLE_SIZE = (1 << colliderHashTableSize);
+        }
 
     private:
         mutable std::mutex lock;
@@ -55,6 +61,8 @@ namespace MXPBD {
         float COL_CONVERGENCE = 0.1f;
         float GROUND_DETECT_RANGE = 25.0f;
         std::uint32_t GROUND_DETECT_QUALITY = 30;
+        Vector CULLING_DISTANCE_SQ = DirectX::XMVectorReplicate(std::powf(100.0f * InverseScale_skyrimUnit, 2.0f));
+        std::uint32_t COL_HASH_TABLE_SIZE = 1 << 10;
 
         Vector groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         const Vector groundRayTo = DirectX::XMVectorSet(0.0f, 0.0f, -5.0f, 0.0f);
@@ -83,7 +91,7 @@ namespace MXPBD {
 
         struct ObjectDatas {
             std::vector<RE::FormID> objectID;
-            struct Root { // ri
+            struct Root {
                 RootType type;
                 std::uint32_t bipedSlot;
                 bool operator==(const Root& other) const {
@@ -100,6 +108,7 @@ namespace MXPBD {
             std::vector<Vector> acceleration;
             std::vector<AABB> boundingAABB;
             std::vector<std::uint8_t> isDisable;                 // just physics disable
+            std::vector<std::uint8_t> isDisableByToggle;                 // just physics disable
         };
         ObjectDatas objectDatas;
 
@@ -130,12 +139,20 @@ namespace MXPBD {
             std::vector<Vector> offset;
             std::vector<float> invMass;
 
+            std::vector<float> restPoseLimit;
+            std::vector<float> restPoseCompliance;
+            std::vector<float> restPoseLambda;
+
+            std::vector<float> restPoseAngularLimit;
+            std::vector<float> restPoseAngularCompliance;
+            std::vector<float> restPoseAngularLambda;
+
             // fake rotation setting
             std::vector<float> linearRotTorque; // only for 6 DOF
 
             // collision
             std::vector<float> collisionMargin;
-            std::vector<float> colShrink;
+            std::vector<float> collisionShrink;
             std::vector<float> collisionFriction;
             std::vector<float> collisionRotationBias;
             std::vector<float> collisionCompliance;
@@ -183,17 +200,23 @@ namespace MXPBD {
             std::vector<std::uint32_t> colorGraph;
 
             std::vector<std::uint8_t> numAnchors;       // 0-3
-            std::vector<std::uint32_t> anchIdx;         // padding by ANCHOR_MAX
-            std::vector<float> restLen;                 // padding by ANCHOR_MAX
-            std::vector<float> compSquish;              // padding by ANCHOR_MAX
-            std::vector<float> compStretch;             // padding by ANCHOR_MAX
-            std::vector<float> squishLimit;             // padding by ANCHOR_MAX
-            std::vector<float> stretchLimit;            // padding by ANCHOR_MAX
-            std::vector<float> angularLimit;            // padding by ANCHOR_MAX
-            std::vector<Vector> restDirLocal;           // padding by ANCHOR_MAX
-            std::vector<float> squishDamping;                 // padding by ANCHOR_MAX
-            std::vector<float> stretchDamping;                 // padding by ANCHOR_MAX
-            std::vector<float> lambda;                  // padding by ANCHOR_MAX
+            struct alignas(16) AnchorData {
+                Vector restDirLocal = vZero;
+
+                std::uint32_t anchIdx = UINT32_MAX;
+                float restLen = 0.0f;       
+                float complianceSquish = 0.0f;
+                float complianceStretch = 0.0f;
+
+                float squishLimit = 0.0f;
+                float stretchLimit = 0.0f;
+                float angularLimit = 0.0f;
+                float squishDamping = 0.0f;
+
+                float stretchDamping = 0.0f;
+                float lambda = 0.0f;
+            };
+            std::vector<AnchorData> anchData;         // padding by ANCHOR_MAX
         };
         Constraints constraints;
         std::vector<std::uint32_t> constraintsOrder;
@@ -208,12 +231,17 @@ namespace MXPBD {
             std::vector<std::uint32_t> colorGraph;
 
             std::vector<std::uint8_t> numAnchors;       // 0-3
-            std::vector<std::uint32_t> anchIdx;         // padding by ANCHOR_MAX
-            std::vector<Quaternion> restRot;      // padding by ANCHOR_MAX
-            std::vector<float> comp;                    // padding by ANCHOR_MAX
-            std::vector<float> limit;                    // padding by ANCHOR_MAX
-            std::vector<float> damping;                    // padding by ANCHOR_MAX
-            std::vector<float> lambda;                  // padding by ANCHOR_MAX
+            struct alignas(16) AnchorData {
+                Quaternion restRot = vZero;
+
+                std::uint32_t anchIdx = UINT32_MAX;
+                float compliance = 0.0f;
+                float limit = 0.0f;
+                float damping = 0.0f;
+
+                float lambda = 0.0f;
+            };
+            std::vector<AnchorData> anchData;      // padding by ANCHOR_MAX
         };
         AngularConstraints angularConstraints;
         std::vector<std::uint32_t> angularConstraintsOrder;
@@ -283,31 +311,40 @@ namespace MXPBD {
 
         struct LocalSpatialHash {
             float invGridSize = 0.1f;
+            Vector vInvGridSize = DirectX::XMVectorReplicate(invGridSize);
+            std::uint32_t hashTableSize = 1 << 10;
 
-            std::vector<std::uint32_t> cellStart;
+            std::vector<std::uint32_t> cell;
             std::vector<std::uint32_t> cellCount;
             std::vector<std::uint32_t> entries;
 
-            inline void Init(const std::uint32_t totalColliders, const float newGridSize) {
+            inline void Init(const std::uint32_t totalColliders, const float newGridSize, const std::uint32_t newHashTableSize) {
                 invGridSize = 1.0f / newGridSize;
-                cellStart.resize(HASH_TABLE_SIZE + 1, 0);
-                cellCount.resize(HASH_TABLE_SIZE, 0);
+                vInvGridSize = DirectX::XMVectorReplicate(invGridSize);
+                hashTableSize = newHashTableSize;
+                cell.resize(hashTableSize + 1, 0);
+                cellCount.resize(hashTableSize, 0);
                 entries.resize(totalColliders * 2);
                 std::fill(cellCount.begin(), cellCount.end(), 0);
             }
+
             inline std::uint32_t HashWorldCoordsHigh(const Vector& p) const {
-                Vector v = DirectX::XMVectorScale(p, invGridSize);
-                v = DirectX::XMVectorFloor(DirectX::XMVectorAdd(v, DirectX::XMVectorReplicate(0.25f)));
-                DirectX::XMINT3 i3;
-                XMStoreSInt3(&i3, v);
-                return XXH32(&i3, sizeof(i3), 0) % HASH_TABLE_SIZE;
+                const Vector v = DirectX::XMVectorFloor(DirectX::XMVectorMultiplyAdd(p, vInvGridSize, vFloorHigh));
+                const __m128i vi = _mm_cvttps_epi32(v);
+                const __m128i hashed = _mm_mullo_epi32(vi, hash_primes);
+                const std::uint32_t x = _mm_extract_epi32(hashed, 0);
+                const std::uint32_t y = _mm_extract_epi32(hashed, 1);
+                const std::uint32_t z = _mm_extract_epi32(hashed, 2);
+                return (x ^ y ^ z) & (hashTableSize - 1);
             }
             inline std::uint32_t HashWorldCoordsLow(const Vector& p) const {
-                Vector v = DirectX::XMVectorScale(p, invGridSize);
-                v = DirectX::XMVectorFloor(DirectX::XMVectorSubtract(v, DirectX::XMVectorReplicate(0.25f)));
-                DirectX::XMINT3 i3;
-                DirectX::XMStoreSInt3(&i3, v);
-                return XXH32(&i3, sizeof(i3), 0) % HASH_TABLE_SIZE;
+                const Vector v = DirectX::XMVectorFloor(DirectX::XMVectorMultiplyAdd(p, vInvGridSize, vFloorLow));
+                const __m128i vi = _mm_cvttps_epi32(v);
+                const __m128i hashed = _mm_mullo_epi32(vi, hash_primes);
+                const std::uint32_t x = _mm_extract_epi32(hashed, 0);
+                const std::uint32_t y = _mm_extract_epi32(hashed, 1);
+                const std::uint32_t z = _mm_extract_epi32(hashed, 2);
+                return (x ^ y ^ z) & (hashTableSize - 1);
             }
         };
         std::vector<LocalSpatialHash> objectHashesSmall;
@@ -346,13 +383,15 @@ namespace MXPBD {
         void ClampObjectRotation();
         void PrefetchBoneDatas();
         void UpdateGlobalAABBTree();
+        void ObjectCulling();
         void PredictBones(const float deltaTime);
-        void SolveConstraints(const float deltaTime, const bool initLambda);
         void CreateLocalSpatialHash();
         void GenerateCollisionManifolds();
         void GenerateGroundCache();
         void SolveCachedCollisions(const float deltaTime);
         void SolveCachedGroundCollisions(const float deltaTime);
+        void SolveConstraints(const float deltaTime, const bool initLambda);
+        void SolveRestPoseConstraints(const float deltaTime, const bool initLambda);
         void UpdateBoneVelocity(const float deltaTime);
         void ApplyToSkyrim();
 

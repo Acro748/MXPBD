@@ -2,7 +2,7 @@
 
 namespace MXPBD {
     struct AABB {
-        AABB() : min(DirectX::XMVectorReplicate(FLT_MAX)), max(DirectX::XMVectorReplicate(-FLT_MAX)) {}
+        AABB() : min(vInf), max(vNegInf) {}
         AABB(const float a_min_x, const float a_min_y, const float a_min_z, const float a_max_x, const float a_max_y, const float a_max_z) : min(DirectX::XMVectorSet(a_min_x, a_min_y, a_min_z, 0.0f)), max(DirectX::XMVectorSet(a_max_x, a_max_y, a_max_z, 0.0f)) {}
         AABB(const Vector& a_min, const Vector& a_max) : min(a_min), max(a_max) {}
 
@@ -65,14 +65,22 @@ namespace MXPBD {
             return DirectX::XMComparisonAllTrue(DirectX::XMVector3EqualIntR(bothCheck, DirectX::XMVectorTrueInt()));
         }
 
-        [[nodiscard]] inline bool IsZero() const {
-            return DirectX::XMVectorGetX(min) == FLT_MAX || (DirectX::XMVectorGetX(min) == 0.0f && DirectX::XMVectorGetX(max) == 0.0f);
+        [[nodiscard]] inline bool IsInvalid() const {
+            if (DirectX::XMVector3Equal(min, vInf))
+                return true;
+            const Vector badMin = DirectX::XMVectorOrInt(DirectX::XMVectorIsNaN(min), DirectX::XMVectorIsInfinite(min));
+            const Vector badMax = DirectX::XMVectorOrInt(DirectX::XMVectorIsNaN(max), DirectX::XMVectorIsInfinite(max));
+            const Vector isExploded = DirectX::XMVectorOrInt(badMin, badMax);
+            return !DirectX::XMComparisonAllTrue(DirectX::XMVector3EqualIntR(isExploded, DirectX::XMVectorFalseInt()));
         }
     };
 
     struct AABBPair {
         std::uint32_t objIdxA = UINT32_MAX;
         std::uint32_t objIdxB = UINT32_MAX;
+
+        std::uint32_t beginA = 0;
+        std::uint32_t endA = 0;
     };
 
     class DynamicAABBTree {

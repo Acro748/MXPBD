@@ -11,7 +11,8 @@ namespace Mus {
         bool LoadLogging();
         bool LoadConfig();
         bool LoadConfig(std::ifstream& configfile);
-
+        bool LoadSMPDefaultConfig();
+        bool LoadSkeletonFile();
 
         //Debug
         [[nodiscard]] inline spdlog::level::level_enum GetLogLevel() const noexcept {
@@ -46,6 +47,12 @@ namespace Mus {
         [[nodiscard]] inline auto GetValidBoneWeightThreshold() const noexcept {
             return ValidBoneWeightThreshold;
         }
+        [[nodiscard]] inline auto GetCullingDistance() const noexcept {
+            return CullingDistance;
+        }
+        [[nodiscard]] inline auto GetColliderHashTableSize() const noexcept {
+            return ColliderHashTableSize;
+        }
 
     protected:
         //Debug
@@ -56,11 +63,13 @@ namespace Mus {
         std::uint8_t IterationMax = 5;
         float SmallGridSize = 30.0f;
         float LargeGridSize = 100.0f;
-        float RotationClampSpeed = 0.12f;
+        float RotationClampSpeed = 1.0f;
         float CollisionConvergence = 0.1f;
         float GroundDetectRange = 25.0f;
         std::uint8_t GroundDetectQuality = 30;
         float ValidBoneWeightThreshold = 0.0001f;
+        float CullingDistance = 100.0f * MXPBD::InverseScale_skyrimUnit;
+        std::uint8_t ColliderHashTableSize = 10;
 
     public:
         inline std::string getCurrentSettingValue(std::string s)
@@ -148,6 +157,35 @@ namespace Mus {
             return value;
         }
 
+        static inline std::vector<std::filesystem::path> GetAllFiles(std::string folder) {
+            std::vector<std::filesystem::path> files;
+
+            auto path = std::filesystem::path(folder);
+            if (!std::filesystem::exists(path))
+                return files;
+            if (!std::filesystem::is_directory(path))
+                return files;
+
+            for (const auto& file : std::filesystem::directory_iterator(folder)) {
+                files.emplace_back(file.path());
+            }
+            return files;
+        }
+
+        static inline std::vector<std::filesystem::path> GetAllFilesWithSub(std::string folder) {
+            std::vector<std::filesystem::path> files;
+
+            auto path = std::filesystem::path(folder);
+            if (!std::filesystem::exists(path))
+                return files;
+            if (!std::filesystem::is_directory(path))
+                return files;
+
+            for (const auto& file : std::filesystem::recursive_directory_iterator(folder)) {
+                files.emplace_back(file.path());
+            }
+            return files;
+        }
     protected:
         inline std::vector<RE::FormID> ConfigLineSplitterFormID(std::string valuestr)
         {
@@ -161,44 +199,4 @@ namespace Mus {
             return value;
         }
     };
-
-    class MultipleConfig : public Config {
-    public:
-        bool LoadSkeletonFile();
-
-        static inline std::vector<std::filesystem::path> GetAllFiles(std::string folder)
-        {
-            std::vector<std::filesystem::path> files;
-
-            auto path = std::filesystem::path(folder);
-            if (!std::filesystem::exists(path))
-                return files;
-            if (!std::filesystem::is_directory(path))
-                return files;
-
-            for (const auto& file : std::filesystem::directory_iterator(folder))
-            {
-                files.emplace_back(file.path());
-            }
-            return files;
-        }
-
-        static inline std::vector<std::filesystem::path> GetAllFilesWithSub(std::string folder)
-        {
-            std::vector<std::filesystem::path> files;
-
-            auto path = std::filesystem::path(folder);
-            if (!std::filesystem::exists(path))
-                return files;
-            if (!std::filesystem::is_directory(path))
-                return files;
-
-            for (const auto& file : std::filesystem::recursive_directory_iterator(folder))
-            {
-                files.emplace_back(file.path());
-            }
-            return files;
-        }
-    };
-
 }

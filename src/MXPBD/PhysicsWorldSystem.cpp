@@ -12,6 +12,8 @@ namespace MXPBD
         physicsWorld->SetCollisionConvergence(Mus::Config::GetSingleton().GetCollisionConvergence());
         physicsWorld->SetGroundDetectRange(Mus::Config::GetSingleton().GetGroundDetectRange());
         physicsWorld->SetGroundDetectQuality(Mus::Config::GetSingleton().GetGroundDetectQuality());
+        physicsWorld->SetCullingDistance(Mus::Config::GetSingleton().GetCullingDistance());
+        physicsWorld->SetColliderHashTableSize(Mus::Config::GetSingleton().GetColliderHashTableSize());
 
         Mus::g_frameEventDispatcher.addListener(this);
         Mus::g_facegenNiNodeEventDispatcher.addListener(this);
@@ -68,7 +70,7 @@ namespace MXPBD
                 rawConvexHullDatas = found->rawConvexHullDatas;
             }
         }
-        CreateProperties(rootNode, input, rawConvexHullDatas);
+        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, input, rawConvexHullDatas);
         physicsWorld->UpdatePhysicsSetting(object, input, false);
     }
 
@@ -159,6 +161,7 @@ namespace MXPBD
         if (!object)
             return false;
         bool isChanged = false;
+        bool isNeedReload = false;
         {
             std::unique_lock ul(objectDatasLock);
             ObjectDataPtr objData = FindObjectDataPtr_unsafe(object);
@@ -168,11 +171,18 @@ namespace MXPBD
             ul.unlock();
             if (RE::Actor* actor = object->As<RE::Actor>(); actor)
             {
-                RE::TESRace* race = actor->GetRace();
-                if ((!race && objData->raceID != 0) || (objData->raceID != race->formID))
+                if (RE::TESRace* race = actor->GetRace(); race)
+                {
+                    if (objData->raceID != race->formID)
+                    {
+                        isChanged = true;
+                        objData->raceID = race->formID;
+                    }
+                }
+                else
                 {
                     isChanged = true;
-                    objData->raceID = race->formID;
+                    objData->raceID = 0;
                 }
             }
             if (object->data.objectReference)
@@ -193,6 +203,40 @@ namespace MXPBD
                 objData->rawDatas.clear();
                 physicsWorld->RemovePhysics(object->formID);
             }
+            else
+            {
+                if (!objData->rawDatas.empty())
+                {
+                    ObjectData::RawData findData = {
+                        .rootType = XPBDWorld::RootType::skeleton,
+                        .bipedSlot = 0};
+                    auto skeletonIt = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), findData);
+                    if (skeletonIt != objData->rawDatas.end())
+                    {
+                        if (skeletonIt->rootNode)
+                        {
+                            if (object->loadedData && object->loadedData->data3D)
+                            {
+                                auto npcNode = object->loadedData->data3D->GetObjectByName("NPC");
+                                if (skeletonIt->rootNode.get() != npcNode)
+                                {
+                                    isNeedReload = true;
+                                    skeletonIt->rootNode = RE::NiPointer(npcNode);
+                                }
+                            }
+                            else
+                            {
+                                isNeedReload = true;
+                                skeletonIt->rootNode = nullptr;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (isNeedReload)
+        {
+            ReloadPhysics(object);
         }
         return isChanged;
     }
@@ -349,10 +393,10 @@ namespace MXPBD
 
         if (origRootNode)
         {
-            if (std::string physicsPath = GetPhysicsInputPath(origRootNode); physicsPath.empty() || !GetPhysicsInput(physicsPath, input))
+            if (std::string physicsPath = GetPhysicsInputPath(origRootNode); physicsPath.empty() || !PhysicsConfigReader::GetSingleton().GetPhysicsInput(physicsPath, input))
             {
                 if (std::string smpConfigPath = GetSMPConfigPath(origRootNode); !smpConfigPath.empty())
-                    ConvertSMPConfig(smpConfigPath, input);
+                    PhysicsConfigReader::GetSingleton().ConvertSMPConfig(smpConfigPath, input);
             }
         }
 
@@ -504,15 +548,21 @@ namespace MXPBD
             ul.unlock();
             {
                 ObjectData::RawData target = {.rootType = XPBDWorld::RootType::skeleton, .bipedSlot = 0};
+                auto npcNode = rootNode->GetObjectByName("NPC");
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it != objData->rawDatas.end())
                 {
+                    if (!it->rootNode && npcNode)
+                        it->rootNode = RE::NiPointer(npcNode);
                     it->input = data.input;
                 }
                 else
                 {
+                    if (npcNode)
+                        target.rootNode = RE::NiPointer(npcNode);
                     target.input = data.input;
                     objData->rawDatas.push_back(target);
+                    objData->sortRawDatas();
                 }
             }
             {
@@ -524,7 +574,7 @@ namespace MXPBD
                 }
             }
         }
-        CreateProperties(rootNode, data.input, rawConvexHullDatas);
+        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, data.input, rawConvexHullDatas);
         physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::skeleton, data.input);
     }
 
@@ -566,8 +616,8 @@ namespace MXPBD
             }
         }
         newInput.bipedSlot = 0;
-        CreateProperties(rootNode, newInput, rawConvexHullDatas);
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::cloth, newInput);
+        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, rawConvexHullDatas);
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::facegen, newInput);
     }
 
     void XPBDWorldSystem::AddClothPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const std::uint32_t bipedSlot)
@@ -602,7 +652,7 @@ namespace MXPBD
             }
         }
         newInput.bipedSlot = bipedSlot;
-        CreateProperties(rootNode, newInput, rawConvexHullDatas);
+        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, rawConvexHullDatas);
         physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::cloth, newInput);
     }
 
@@ -690,12 +740,12 @@ namespace MXPBD
                     PhysicsInput newInput;
                     if (!info.isSMPConfig)
                     {
-                        if (!GetPhysicsInput(info.inputPath, newInput))
+                        if (!PhysicsConfigReader::GetSingleton().GetPhysicsInput(info.inputPath, newInput))
                             continue;
                     }
                     else
                     {
-                        if (!ConvertSMPConfig(info.inputPath, newInput))
+                        if (!PhysicsConfigReader::GetSingleton().ConvertSMPConfig(info.inputPath, newInput))
                             continue;
                     }
                     if (firstRead)
@@ -714,7 +764,7 @@ namespace MXPBD
                             rawData.input.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
                         }
                     }
-                    FixBoneName(rawData.input, objData->renameMap);
+                    PhysicsConfigReader::GetSingleton().FixBoneName(rawData.input, objData->renameMap);
                 }
                 ObjectData::RawData copyRawData = {.rootType = rawData.rootType, .bipedSlot = rawData.bipedSlot};
                 copyRawDatas.push_back(copyRawData);
@@ -725,6 +775,13 @@ namespace MXPBD
         {
             AddPhysics(object, rootNode, copyRawDatas[i].rootType, copyRawDatas[i].bipedSlot, (copyRawDatas.size() - 1ull) == i);
         }
+    }
+
+    void XPBDWorldSystem::TogglePhysics(RE::TESObjectREFR* object, bool isDisable)
+    {
+        if (!object)
+            return;
+        physicsWorld->TogglePhysics(object->formID, isDisable);
     }
 
     void XPBDWorldSystem::UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode)
@@ -804,6 +861,7 @@ namespace MXPBD
             target.bipedSlot = 0;
             target.rawConvexHullDatas = std::move(newRawConvexHullDatas);
             objData->rawDatas.push_back(target);
+            objData->sortRawDatas();
         }
     }
 
@@ -823,26 +881,13 @@ namespace MXPBD
                     it = objectDatas.erase(it);
                 }
                 else
-                {
-                    cullingList[it->first] = CullingObject(object);
                     it++;
-                }
             }
         }
         for (const auto& r : removeList)
         {
             physicsWorld->RemovePhysics(r);
         }
-        /*for (const auto& c : cullingList)
-        {
-            physicsWorld->TogglePhysics(c.first, c.second);
-        }*/
-    }
-
-    bool XPBDWorldSystem::CullingObject(RE::TESObjectREFR* object)
-    {
-        // todo
-        return false;
     }
 
     std::string XPBDWorldSystem::GetPhysicsInputPath(RE::NiNode* root) const
@@ -857,7 +902,6 @@ namespace MXPBD
 
     std::string XPBDWorldSystem::GetSMPConfigPath(RE::NiNode* root) const
     {
-        return "";
         if (!root)
             return "";
         auto extraData = root->GetExtraData<RE::NiStringExtraData>("HDT Skinned Mesh Physics Object");
@@ -909,6 +953,7 @@ namespace MXPBD
                 else
                 {
                     objData->rawDatas.push_back(data);
+                    objData->sortRawDatas();
                 }
             }
             if (isNeedRemove)
@@ -929,7 +974,7 @@ namespace MXPBD
                 std::lock_guard lg(objData->lock);
                 ul.unlock();
                 objData->renameMap.insert(renameMap.begin(), renameMap.end());
-                FixBoneName(newInput, objData->renameMap);
+                PhysicsConfigReader::GetSingleton().FixBoneName(newInput, objData->renameMap);
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
                 if (it != objData->rawDatas.end())
                 {
@@ -957,14 +1002,14 @@ namespace MXPBD
                 return;
             PhysicsInput input;
             RenameStringMap renameMap;
-            if (std::string physicsPath = GetPhysicsInputPath(e.armor); physicsPath.empty() || !GetPhysicsInput(physicsPath, input))
+            if (std::string physicsPath = GetPhysicsInputPath(e.armor); physicsPath.empty() || !PhysicsConfigReader::GetSingleton().GetPhysicsInput(physicsPath, input))
             {
                 if (std::string smpConfigPath = GetSMPConfigPath(e.armor); !smpConfigPath.empty())
-                    ConvertSMPConfig(smpConfigPath, input);
+                    PhysicsConfigReader::GetSingleton().ConvertSMPConfig(smpConfigPath, input);
             }
             if (!IsHDTSMPEnabled)
                 MergeArmorNodeTree(e.skeleton, e.armor, GetArmorCloneNodePrefix(e.bipedSlot), renameMap);
-            FixBoneName(input, renameMap);
+            PhysicsConfigReader::GetSingleton().FixBoneName(input, renameMap);
 
             std::unique_lock ul(objectDatasLock);
             const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(e.actor);
@@ -978,7 +1023,10 @@ namespace MXPBD
             if (it != objData->rawDatas.end())
                 *it = data;
             else
+            {
                 objData->rawDatas.push_back(data);
+                objData->sortRawDatas();
+            }
         }
         else
         {
@@ -995,7 +1043,10 @@ namespace MXPBD
             if (it != objData->rawDatas.end())
                 it->rootNode = data.rootNode;
             else
+            {
                 objData->rawDatas.push_back(data);
+                objData->sortRawDatas();
+            }
         }
     }
 

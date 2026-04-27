@@ -6,7 +6,6 @@
     "detours",
     "tinyxml2",
     "magic-enum",
-    "xxhash",
     "meshoptimizer",
     "unordered-dense",
     "tbb"

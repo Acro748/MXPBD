@@ -5,14 +5,14 @@ message("Using toolchain file ${CMAKE_TOOLCHAIN_FILE}.")
 ## Define project
 ########################################################################################################################
 if(NOT ENABLE_SKYRIM_VR)
-    set(TARGET_DESC "SSE & AE")
+    set(TARGET_DESC "SE & AE")
 else()
     set(TARGET_DESC "VR")
 endif()
 project(
         MXPBD
-        VERSION 0.1.0
-        DESCRIPTION "MXPBD ${TARGET_DESC} (${SIMD_LEVEL})"
+        VERSION 0.1.1
+        DESCRIPTION "MXPBD(${SIMD_LEVEL}) ${TARGET_DESC}"
         LANGUAGES CXX
 )
 set(CMAKE_CXX_STANDARD 23)
@@ -79,7 +79,6 @@ find_package(Directxtk CONFIG REQUIRED)
 find_package(detours)
 find_package(tinyxml2 REQUIRED)
 find_package(magic_enum CONFIG REQUIRED)
-find_package(xxhash CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(unordered_dense CONFIG REQUIRED)
 find_package(tbb CONFIG REQUIRED)
@@ -139,7 +138,6 @@ target_link_libraries(
     PRIVATE
         tinyxml2::tinyxml2
         magic_enum::magic_enum
-        xxHash::xxhash
         quickhull
         meshoptimizer::meshoptimizer
         unordered_dense::unordered_dense

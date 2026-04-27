@@ -106,7 +106,6 @@
 #include <vector>
 #include <version>
 #include <wrl/client.h>
-#include <xxhash.h>
 
 #include <ShlObj_core.h>
 #include <Windows.h>
@@ -147,6 +146,7 @@ using EventResult = RE::BSEventNotifyControl;
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/spin_mutex.h>
+#include <tbb/enumerable_thread_specific.h>
 
 #include "lString.h"
 #include "Hook.h"

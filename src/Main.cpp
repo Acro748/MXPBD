@@ -80,8 +80,9 @@ namespace {
     void kDataloadedFunction()
     {
         Mus::Config::GetSingleton().LoadConfig();
-        static_cast<Mus::MultipleConfig*>(&Mus::Config::GetSingleton())->LoadSkeletonFile();
+        Mus::Config::GetSingleton().LoadSkeletonFile();
         Mus::ConditionManager::GetSingleton().SortConditions();
+        Mus::Config::GetSingleton().LoadSMPDefaultConfig();
         MXPBD::IsHDTSMPEnabled = GetModuleHandleW(L"hdtSMP64");
         if (!MXPBD::IsHDTSMPEnabled)
             Mus::fixFaceGenBoneLimit();

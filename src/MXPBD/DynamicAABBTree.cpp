@@ -124,15 +124,13 @@ namespace MXPBD {
         if (queryObjIdx == UINT32_MAX || root == UINT32_MAX)
             return;
 
-        std::vector<std::uint32_t> stack;
-        stack.reserve(256);
-        stack.push_back(root);
+        std::uint32_t stack[256];
+        std::uint32_t stackPtr = 0;
+        stack[stackPtr++] = root;
 
-        while (!stack.empty())
+        while (stackPtr > 0)
         {
-            const std::uint32_t nodeId = stack.back();
-            stack.pop_back();
-
+            const std::uint32_t nodeId = stack[--stackPtr];
             const TreeNode& node = nodes[nodeId];
             if (node.aabb.Overlaps(queryAABB))
             {
@@ -145,8 +143,11 @@ namespace MXPBD {
                 }
                 else
                 {
-                    stack.push_back(node.left);
-                    stack.push_back(node.right);
+                    if (stackPtr + 1 < 256)
+                    {
+                        stack[stackPtr++] = node.left;
+                        stack[stackPtr++] = node.right;
+                    }
                 }
             }
         }

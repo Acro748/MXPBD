@@ -4,6 +4,8 @@ namespace MXPBD {
     constexpr RE::NiPoint3 pZero = RE::NiPoint3(0, 0, 0);
     constexpr float Scale_havokWorld = 0.0142875f;
     constexpr float InverseScale_havokWorld = 1.0f / Scale_havokWorld;
+    constexpr float Scale_skyrimUnit = 0.046875f;
+    constexpr float InverseScale_skyrimUnit = 1.0f / Scale_skyrimUnit;
     constexpr float DeltaTime60 = 1.0f / 60.0f;
     const std::size_t CoreCount = std::thread::hardware_concurrency();
     constexpr float FloatPrecision = 1e-5f;
@@ -19,14 +21,15 @@ namespace MXPBD {
     const DirectX::XMVECTOR vHalf = DirectX::XMVectorReplicate(0.5f);
     const DirectX::XMVECTOR vOne = DirectX::XMVectorReplicate(1.0f);
     const DirectX::XMVECTOR vNegOne = DirectX::XMVectorReplicate(-1.0f);
-    const DirectX::XMVECTOR vDotOppositeThreshold = DirectX::XMVectorReplicate(-0.9999f);
-    const DirectX::XMVECTOR vAxisOverlapLimit = DirectX::XMVectorReplicate(-0.99f);
     const DirectX::XMVECTOR vAxisSimilarityLimit = DirectX::XMVectorReplicate(0.998f);
-    const DirectX::XMVECTOR vCrossProductSkipLimit = DirectX::XMVectorReplicate(0.99f);
     const DirectX::XMVECTOR vBreakThresholdSq = DirectX::XMVectorReplicate(0.04f);
     const DirectX::XMVECTOR vContactMergeThresholdSq = DirectX::XMVectorReplicate(0.001f);
     const DirectX::XMVECTOR vNegInf = DirectX::XMVectorReplicate(-FLT_MAX);
     const DirectX::XMVECTOR vInf = DirectX::XMVectorReplicate(FLT_MAX);
+    const DirectX::XMVECTOR vFloorHigh = DirectX::XMVectorReplicate(0.25f);
+    const DirectX::XMVECTOR vFloorLow = DirectX::XMVectorReplicate(-0.25f);
+
+    const __m128i hash_primes = _mm_set_epi32(0, 83492791, 19349663, 73856093);
 
     constexpr std::uint32_t ANCHOR_MAX = 4;
     constexpr std::uint32_t COL_VERTEX_MAX = 16; // COL_VERTEX_MAX = 16 * qualityLevel
@@ -34,7 +37,6 @@ namespace MXPBD {
     constexpr std::uint32_t COL_FACE_MAX = 12;
     constexpr std::uint32_t AXIS_HISTORY_MAX = 92; // AXIS_HISTORY_MAX <= 1 + (COL_FACE_MAX * 2) + (COL_EDGE_MAX * COL_EDGE_MAX);
     constexpr std::uint32_t NOCOLLIDE_MAX = 16;
-    constexpr std::uint32_t HASH_TABLE_SIZE = 1009;
     constexpr float COMPLIANCE_SCALE = 0.0001f;
     constexpr float ROTATION_CLAMP_DEFAULT = 0.2f;
     constexpr float COL_MARGIN_MIN = 0.5f;

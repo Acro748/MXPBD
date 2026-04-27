@@ -37,8 +37,9 @@ namespace Mus {
             else
             {
                 ConditionManager::GetSingleton().InitialCondition();
-                static_cast<MultipleConfig*>(&Config::GetSingleton())->LoadSkeletonFile();
+                Config::GetSingleton().LoadSkeletonFile();
                 ConditionManager::GetSingleton().SortConditions();
+                Config::GetSingleton().LoadSMPDefaultConfig();
                 if (a_actor->loadedData && a_actor->loadedData->data3D)
                     MXPBD::XPBDWorldSystem::GetSingleton().ReloadPhysics(a_actor);
             }
