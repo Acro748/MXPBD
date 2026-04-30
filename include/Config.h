@@ -44,11 +44,20 @@ namespace Mus {
         [[nodiscard]] inline auto GetGroundDetectQuality() const noexcept {
             return GroundDetectQuality;
         }
+        [[nodiscard]] inline auto GetWindDetectRange() const noexcept {
+            return WindDetectRange;
+        }
+        [[nodiscard]] inline auto GetWindDetectQuality() const noexcept {
+            return WindDetectQuality;
+        }
         [[nodiscard]] inline auto GetValidBoneWeightThreshold() const noexcept {
             return ValidBoneWeightThreshold;
         }
         [[nodiscard]] inline auto GetCullingDistance() const noexcept {
             return CullingDistance;
+        }
+        [[nodiscard]] inline auto GetCollisionQualityByDistance() const noexcept {
+            return CollisionQualityByDistance;
         }
         [[nodiscard]] inline auto GetColliderHashTableSize() const noexcept {
             return ColliderHashTableSize;
@@ -65,11 +74,18 @@ namespace Mus {
         float LargeGridSize = 100.0f;
         float RotationClampSpeed = 1.0f;
         float CollisionConvergence = 0.1f;
-        float GroundDetectRange = 25.0f;
-        std::uint8_t GroundDetectQuality = 30;
-        float ValidBoneWeightThreshold = 0.0001f;
-        float CullingDistance = 100.0f * MXPBD::InverseScale_skyrimUnit;
+
+        float GroundDetectRange = 0.15f;
+        std::uint8_t GroundDetectQuality = 5;
+
+        float WindDetectRange = 20.0f;
+        std::uint8_t WindDetectQuality = 5;
+
+        float CullingDistance = 100.0f;
+        bool CollisionQualityByDistance = true;
         std::uint8_t ColliderHashTableSize = 10;
+
+        float ValidBoneWeightThreshold = 0.0001f;
 
     public:
         inline std::string getCurrentSettingValue(std::string s)

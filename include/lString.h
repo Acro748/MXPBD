@@ -2,16 +2,20 @@
 
 namespace Mus {
     class lString {
-        std::string str;
+        std::string str = "";
 
     public:
         lString() = default;
-        lString(const char* s) : str(lower(s)) {}
+        lString(const char* s) {
+            if (s)
+                str = lower(s);
+        }
         lString(const std::string& s) : str(lower(s)) {}
         lString(const lString& s) : str(s.str) {}
 
         lString& operator=(const char* s) {
-            str = lower(s);
+            if (s)
+                str = lower(s);
             return *this;
         }
         lString& operator=(const std::string& s) {
@@ -50,7 +54,7 @@ namespace Mus {
         }
 
         bool operator==(const char* other) const {
-            return str == lower(other);
+            return other && str == lower(other);
         }
         bool operator==(const std::string& other) const {
             return str == lower(other);
@@ -80,7 +84,7 @@ namespace Mus {
         }
 
         bool contains(const char* other) const {
-            return str.contains(lower(other));
+            return other && str.contains(lower(other));
         }
         bool contains(const std::string& other) const {
             return str.contains(lower(other));
@@ -90,7 +94,7 @@ namespace Mus {
         }
 
         bool starts_with(const char* prefix) const {
-            return str.starts_with(lower(prefix));
+            return prefix && str.starts_with(lower(prefix));
         }
         bool starts_with(const std::string& prefix) const {
             return str.starts_with(lower(prefix));
@@ -116,7 +120,7 @@ namespace Mus {
         }
 
         bool ends_with(const char* suffix) const {
-            return str.ends_with(lower(suffix));
+            return suffix && str.ends_with(lower(suffix));
         }
         bool ends_with(const std::string& suffix) const {
             return str.ends_with(lower(suffix));
@@ -126,17 +130,17 @@ namespace Mus {
         }
 
         lString& remove_ends_with(const char* suffix) {
-            if (starts_with(suffix))
+            if (ends_with(suffix))
                 str = std::string(str.begin(), str.end() - std::strlen(suffix));
             return *this;
         }
         lString& remove_ends_with(const std::string& suffix) {
-            if (starts_with(suffix))
+            if (ends_with(suffix))
                 str = std::string(str.begin(), str.end() - suffix.size());
             return *this;
         }
         lString& remove_ends_with(const lString& suffix) {
-            if (starts_with(suffix))
+            if (ends_with(suffix))
                 str = std::string(str.begin(), str.end() - suffix.str.size());
             return *this;
         }

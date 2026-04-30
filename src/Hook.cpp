@@ -76,8 +76,8 @@ namespace Mus {
 		DetourAttach(&(PVOID&)onArmorAttachFunction_Orig, onArmorAttachFunction);
 	}
 	void hookArmorDetach()
-	{
-		DetourAttach(&(PVOID&)onArmorAttachFunction_Orig, onArmorDetachFunction);
+    {
+        DetourAttach(&(PVOID&)onArmorDetachFunction_Orig, onArmorDetachFunction);
 	}
 
 	RE::FormID PlayerCurrentCell = 0;
@@ -115,11 +115,9 @@ namespace Mus {
 				IsPlayerExterior = currentCell->IsExteriorCell();
 			}
 
-			FrameEvent e;
-			e.gamePaused = main ? main->freezeTime : false;
 			const auto menu = RE::UI::GetSingleton();
-			IsGamePaused.store(((e.gamePaused || (menu && menu->numPausesGame > 0)) && !IsRaceSexMenu.load()) || IsMainMenu.load());
-			//currentTime = std::clock();
+			FrameEvent e;
+            e.gamePaused = (main ? main->freezeTime : false) || (menu && menu->numPausesGame > 0);
 			g_frameEventDispatcher.dispatch(e);
 		}
 	}
@@ -223,6 +221,6 @@ namespace Mus {
         SKSE::AllocTrampoline(14);
 		hookEngineTrampoline(trampoline);
 
-		//hookLoad3D();
+		hookLoad3D();
 	}
 }

@@ -2,6 +2,51 @@
 
 namespace MXPBD
 {
+    const std::unordered_map<Mus::lString, std::uint32_t>& GetCollisionLayerEnum()
+    {
+        static bool isInit = false;
+        static std::unordered_map<Mus::lString, std::uint32_t> LayerStrings;
+        if (isInit)
+            return LayerStrings;
+        isInit = true;
+        LayerStrings["Skeleton"] = CollisionLayer::kSkeleton;
+        LayerStrings["Head"] = CollisionLayer::kHead;
+        LayerStrings["RigidBody"] = CollisionLayer::kRigidBody;
+        LayerStrings["SoftBody"] = CollisionLayer::kSoftBody;
+        LayerStrings["Genitals"] = CollisionLayer::kGenitals;
+        LayerStrings["Body"] = CollisionLayer::kBody;
+        LayerStrings["Hair"] = CollisionLayer::kHair;
+        LayerStrings["Cloth"] = CollisionLayer::kCloth;
+        LayerStrings["Skirt"] = CollisionLayer::kSkirt;
+        LayerStrings["Cape"] = CollisionLayer::kCape;
+        LayerStrings["Outfit"] = CollisionLayer::kOutfit;
+        LayerStrings["Wing"] = CollisionLayer::kWing;
+        LayerStrings["Ears"] = CollisionLayer::kEars;
+        LayerStrings["Tail"] = CollisionLayer::kTail;
+        LayerStrings["Weapon"] = CollisionLayer::kWeapon;
+        LayerStrings["Ground"] = CollisionLayer::kGround;
+        LayerStrings["Static"] = CollisionLayer::kStatic;
+        LayerStrings["Environment"] = CollisionLayer::kEnvironment;
+        LayerStrings["AllLayer"] = CollisionLayer::kAllLayer;
+
+        const std::uint32_t baseIdx = 16;
+        for (std::uint32_t i = baseIdx + 1; i <= 31; ++i)
+        {
+            LayerStrings["Misc" + std::to_string(i- baseIdx)] = 1 << i;
+        }
+        return LayerStrings;
+    }
+    std::uint32_t GetStringAsBitMask(const Mus::lString& str)
+    {
+        const auto& layerStrings = GetCollisionLayerEnum();
+        auto it = layerStrings.find(str);
+        if (it != layerStrings.end())
+        {
+            return it->second;
+        }
+        return 0;
+    }
+
     void PhysicsConfigReader::CreateParent(RE::NiNode* rootNode, PhysicsInput& input) const
     {
         if (!rootNode)
@@ -178,7 +223,6 @@ namespace MXPBD
                 }
 
                 std::string_view parentName = obj->parent->name.c_str();
-
                 std::vector<std::uint32_t> selectedIdx;
                 const std::uint8_t requiredAnchors = ANCHOR_MAX - anchIdx;
                 const std::uint8_t maxToPick = std::min<std::uint8_t>(requiredAnchors, COL_VERTEX_MAX);
@@ -303,7 +347,6 @@ namespace MXPBD
                 }
 
                 std::string_view parentName = obj->parent->name.c_str();
-
                 std::vector<std::uint32_t> selectedIdx;
                 const std::uint8_t requiredAnchors = ANCHOR_MAX - anchIdx;
                 const std::uint8_t maxToPick = std::min<std::uint8_t>(requiredAnchors, COL_VERTEX_MAX);
@@ -412,6 +455,17 @@ namespace MXPBD
         CreateOriginal(rootNode, input);
     }
 
+    void PhysicsConfigReader::AssignDefaultCollisionLayerGroup(const std::uint32_t collisionLayerGroup, PhysicsInput& input)
+    {
+        for (auto& bone : input.bones)
+        {
+            if (bone.second.collisionLayerGroup > 0)
+                continue;
+            bone.second.collisionLayerGroup |= collisionLayerGroup;
+            bone.second.collisionCollideLayer &= ~collisionLayerGroup;
+        }
+    }
+
     bool PhysicsConfigReader::GetPhysicsInput(const std::string& file, PhysicsInput& input) const
     {
         tinyxml2::XMLDocument doc;
@@ -456,29 +510,20 @@ namespace MXPBD
         tinyxml2::XMLElement* elem = root->FirstChildElement();
         while (elem)
         {
-            std::string elemName = elem->Name();
-            std::transform(elemName.begin(), elemName.end(), elemName.begin(), ::tolower);
+            const Mus::lString elemName = elem->Name();
             if (elemName == "bone-default")
             {
                 tinyxml2::XMLElement* boneDefaultElem = elem->FirstChildElement();
                 while (boneDefaultElem)
                 {
-                    std::string boneDefaultElemName = boneDefaultElem->Name();
-                    std::transform(boneDefaultElemName.begin(), boneDefaultElemName.end(), boneDefaultElemName.begin(), ::tolower);
-                    GetBoneData(boneDefaultElemName, boneDefaultElem, defaultBone);
+                    GetBoneData(boneDefaultElem->Name(), boneDefaultElem, defaultBone);
                     boneDefaultElem = boneDefaultElem->NextSiblingElement();
                 }
             }
             else if (elemName == "bone")
             {
-                const char* cName = elem->Attribute("name");
-                if (!cName)
-                {
-                    elem = elem->NextSiblingElement();
-                    continue;
-                }
-                std::string name = cName;
-                if (name.empty())
+                const char* boneName = elem->Attribute("name");
+                if (IsEmptyChar(boneName))
                 {
                     elem = elem->NextSiblingElement();
                     continue;
@@ -488,38 +533,34 @@ namespace MXPBD
                 tinyxml2::XMLElement* boneElem = elem->FirstChildElement();
                 while (boneElem)
                 {
-                    std::string boneElemName = boneElem->Name();
-                    std::transform(boneElemName.begin(), boneElemName.end(), boneElemName.begin(), ::tolower);
-                    GetBoneData(boneElemName, boneElem, newBone);
+                    GetBoneData(boneElem->Name(), boneElem, newBone);
                     boneElem = boneElem->NextSiblingElement();
                 }
-                BoneLogging(file, name, newBone);
+                BoneLogging(file, boneName, newBone);
                 newBone.restPoseCompliance *= COMPLIANCE_SCALE;
                 newBone.restPoseAngularLimit = DirectX::XMConvertToRadians(newBone.restPoseAngularLimit);
                 newBone.restPoseAngularCompliance *= COMPLIANCE_SCALE;
                 newBone.collisionCompliance *= COMPLIANCE_SCALE;
-                input.bones.emplace(name, newBone);
+                input.bones.emplace(boneName, newBone);
             }
-            else if (elemName == "no-collide" || elemName == "nocollide")
+            else if (elemName == "nocollide")
             {
-                const char* aBoneName = elem->Attribute("A");
-                const char* bBoneName = elem->Attribute("B");
-                if (!aBoneName || !bBoneName)
+                const char* A = elem->Attribute("A");
+                const char* B = elem->Attribute("B");
+                if (IsEmptyChar(A) || IsEmptyChar(B))
                 {
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                input.convexHullColliders.noCollideBones[aBoneName].insert(bBoneName);
-                logger::debug("{} : bone no collide {} - {}", file, aBoneName, bBoneName);
+                input.convexHullColliders.noCollideBones[A].insert(B);
+                logger::debug("{} : bone no collide {} - {}", file, A, B);
             }
             else if (elemName == "linear-constraint-default")
             {
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    std::string consElemName = consElem->Name();
-                    std::transform(consElemName.begin(), consElemName.end(), consElemName.begin(), ::tolower);
-                    GetLinearConstraint(consElemName, consElem, defaultLinearConstraint);
+                    GetLinearConstraint(consElem->Name(), consElem, defaultLinearConstraint);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -527,7 +568,7 @@ namespace MXPBD
             {
                 const char* A = elem->Attribute("A");
                 const char* B = elem->Attribute("B");
-                if (!A || !B)
+                if (IsEmptyChar(A) || IsEmptyChar(B))
                 {
                     elem = elem->NextSiblingElement();
                     continue;
@@ -536,9 +577,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    std::string consElemName = consElem->Name();
-                    std::transform(consElemName.begin(), consElemName.end(), consElemName.begin(), ::tolower);
-                    GetLinearConstraint(consElemName, consElem, newCons);
+                    GetLinearConstraint(consElem->Name(), consElem, newCons);
                     consElem = consElem->NextSiblingElement();
                 }
                 auto& cons = input.constraints[A];
@@ -563,9 +602,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    std::string consElemName = consElem->Name();
-                    std::transform(consElemName.begin(), consElemName.end(), consElemName.begin(), ::tolower);
-                    GetAngularConstraint(consElemName, consElem, defaultAngularConstraint);
+                    GetAngularConstraint(consElem->Name(), consElem, defaultAngularConstraint);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -573,7 +610,7 @@ namespace MXPBD
             {
                 const char* A = elem->Attribute("A");
                 const char* B = elem->Attribute("B");
-                if (!A || !B)
+                if (IsEmptyChar(A) || IsEmptyChar(B))
                 {
                     elem = elem->NextSiblingElement();
                     continue;
@@ -582,9 +619,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    std::string consElemName = consElem->Name();
-                    std::transform(consElemName.begin(), consElemName.end(), consElemName.begin(), ::tolower);
-                    GetAngularConstraint(consElemName, consElem, newCons);
+                    GetAngularConstraint(consElem->Name(), consElem, newCons);
                     consElem = consElem->NextSiblingElement();
                 }
                 auto& cons = input.angularConstraints[A];
@@ -635,17 +670,14 @@ namespace MXPBD
         tinyxml2::XMLElement* elem = root->FirstChildElement();
         while (elem)
         {
-            std::string elemName = elem->Name();
-            std::transform(elemName.begin(), elemName.end(), elemName.begin(), ::tolower);
+            const Mus::lString elemName = elem->Name();
             if (elemName == "bone-default")
             {
-                tinyxml2::XMLElement* boneDefaultElem = elem->FirstChildElement();
-                while (boneDefaultElem)
+                tinyxml2::XMLElement* boneElem = elem->FirstChildElement();
+                while (boneElem)
                 {
-                    std::string boneDefaultElemName = boneDefaultElem->Name();
-                    std::transform(boneDefaultElemName.begin(), boneDefaultElemName.end(), boneDefaultElemName.begin(), ::tolower);
-                    GetBoneData(boneDefaultElemName, boneDefaultElem, defaultSMPBone);
-                    boneDefaultElem = boneDefaultElem->NextSiblingElement();
+                    GetBoneData(boneElem->Name(), boneElem, defaultSMPBone);
+                    boneElem = boneElem->NextSiblingElement();
                 }
             }
             else if (elemName == "linear-constraint-default")
@@ -653,9 +685,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    std::string consElemName = consElem->Name();
-                    std::transform(consElemName.begin(), consElemName.end(), consElemName.begin(), ::tolower);
-                    GetLinearConstraint(consElemName, consElem, defaultSMPLinearCons);
+                    GetLinearConstraint(consElem->Name(), consElem, defaultSMPLinearCons);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -664,9 +694,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    std::string consElemName = consElem->Name();
-                    std::transform(consElemName.begin(), consElemName.end(), consElemName.begin(), ::tolower);
-                    GetAngularConstraint(consElemName, consElem, defaultSMPAngularCons);
+                    GetAngularConstraint(consElem->Name(), consElem, defaultSMPAngularCons);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -718,6 +746,7 @@ namespace MXPBD
         AngularConstraintData defaultAngularConstraint = defaultSMPAngularCons;
 
         auto constraintAdd = [&](const char* A, const char* B) {
+            if (FloatPrecision < defaultLinearConstraint.complianceSquish + defaultLinearConstraint.complianceStretch)
             {
                 auto& cons = input.constraints[A];
                 std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchorBoneNames.size());
@@ -735,6 +764,7 @@ namespace MXPBD
                     LinearConstraintLogging(file, A, B, anchIdx, newCons);
                 }
             }
+            if (FloatPrecision < defaultAngularConstraint.compliance)
             {
                 auto& cons = input.angularConstraints[A];
                 std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchorBoneNames.size());
@@ -753,7 +783,7 @@ namespace MXPBD
         tinyxml2::XMLElement* elem = root->FirstChildElement();
         while (elem)
         {
-            const std::string elemName = elem->Name();
+            const Mus::lString elemName = elem->Name();
             if (elemName == "bone-default")
             {
                 if (tinyxml2::XMLElement* massElem = elem->FirstChildElement("mass"); massElem)
@@ -779,26 +809,19 @@ namespace MXPBD
             }
             else if (elemName == "bone")
             {
-                const char* cName = elem->Attribute("name");
-                if (!cName)
+                const char* boneName = elem->Attribute("name");
+                if (IsEmptyChar(boneName))
                 {
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                std::string name = cName;
-                if (name.empty())
-                {
-                    elem = elem->NextSiblingElement();
-                    continue;
-                }
-
                 PhysicsInput::Bone newBone = defaultBone;
-                BoneLogging(file, name, newBone);
+                BoneLogging(file, boneName, newBone);
                 newBone.restPoseCompliance *= COMPLIANCE_SCALE;
                 newBone.restPoseAngularLimit = DirectX::XMConvertToRadians(newBone.restPoseAngularLimit);
                 newBone.restPoseAngularCompliance *= COMPLIANCE_SCALE;
                 newBone.collisionCompliance *= COMPLIANCE_SCALE;
-                input.bones.emplace(name, newBone);
+                input.bones.emplace(boneName, newBone);
             }
             else if (elemName == "generic-constraint-default")
             {
@@ -808,12 +831,12 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    const std::string consElemName = consElem->Name();
+                    const Mus::lString consElemName = consElem->Name();
                     if (consElemName == "generic-constraint")
                     {
                         const char* A = consElem->Attribute("bodyA");
                         const char* B = consElem->Attribute("bodyB");
-                        if (!A || !B)
+                        if (IsEmptyChar(A) || IsEmptyChar(B))
                         {
                             consElem = consElem->NextSiblingElement();
                             continue;
@@ -827,7 +850,7 @@ namespace MXPBD
             {
                 const char* A = elem->Attribute("bodyA");
                 const char* B = elem->Attribute("bodyB");
-                if (!A || !B)
+                if (IsEmptyChar(A) || IsEmptyChar(B))
                 {
                     elem = elem->NextSiblingElement();
                     continue;
@@ -971,88 +994,149 @@ namespace MXPBD
     }
 
     
-    void PhysicsConfigReader::GetBoneData(const std::string& elemName, tinyxml2::XMLElement* elem, PhysicsInput::Bone& boneData) const
+    void PhysicsConfigReader::GetBoneData(const Mus::lString& rootElemName, tinyxml2::XMLElement* rootElem, PhysicsInput::Bone& boneData) const
     {
-        if (elemName == "physics")
+        if (rootElemName.empty())
+            return;
+        if (rootElemName == "physics")
         {
-            elem->QueryFloatAttribute("mass", &boneData.mass);
-            elem->QueryFloatAttribute("damping", &boneData.damping);
-            elem->QueryFloatAttribute("inertiaScale", &boneData.inertiaScale);
-            elem->QueryFloatAttribute("restitution", &boneData.restitution);
-            elem->QueryFloatAttribute("rotationRatio", &boneData.rotationRatio);
-            elem->QueryFloatAttribute("gravity", &boneData.gravity);
-            elem->QueryFloatAttribute("linearRotTorque", &boneData.linearRotTorque);
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "mass")
+                    elem->QueryFloatText(&boneData.mass);
+                else if (elemName == "damping")
+                    elem->QueryFloatText(&boneData.damping);
+                else if (elemName == "restitution")
+                    elem->QueryFloatText(&boneData.restitution);
+                else if (elemName == "inertiaScale")
+                    elem->QueryFloatText(&boneData.inertiaScale);
+                else if (elemName == "rotationBlendFactor")
+                    elem->QueryFloatText(&boneData.rotationBlendFactor);
+                else if (elemName == "gravity")
+                    elem->QueryFloatText(&boneData.gravity);
+                else if (elemName == "windFactor")
+                    elem->QueryFloatText(&boneData.windFactor);
+                else if (elemName == "linearXRotTorque")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.linearRotTorque[0].x);
+                    elem->QueryFloatAttribute("y", &boneData.linearRotTorque[0].y);
+                    elem->QueryFloatAttribute("z", &boneData.linearRotTorque[0].z);
+                }
+                else if (elemName == "linearYRotTorque")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.linearRotTorque[1].x);
+                    elem->QueryFloatAttribute("y", &boneData.linearRotTorque[1].y);
+                    elem->QueryFloatAttribute("z", &boneData.linearRotTorque[1].z);
+                }
+                else if (elemName == "linearZRotTorque")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.linearRotTorque[2].x);
+                    elem->QueryFloatAttribute("y", &boneData.linearRotTorque[2].y);
+                    elem->QueryFloatAttribute("z", &boneData.linearRotTorque[2].z);
+                }
+                elem = elem->NextSiblingElement();
+            }
         }
-        else if (elemName == "restpose")
+        else if (rootElemName == "restPose")
         {
-            elem->QueryFloatAttribute("limit", &boneData.restPoseLimit);
-            elem->QueryFloatAttribute("compliance", &boneData.restPoseCompliance);
-            elem->QueryFloatAttribute("angularLimit", &boneData.restPoseLimit);
-            elem->QueryFloatAttribute("angularCompliance", &boneData.restPoseCompliance);
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "restPoseLimit")
+                    elem->QueryFloatText(&boneData.restPoseLimit);
+                else if (elemName == "restPoseCompliance")
+                    elem->QueryFloatText(&boneData.restPoseCompliance);
+                else if (elemName == "restPoseAngularLimit")
+                    elem->QueryFloatText(&boneData.restPoseAngularLimit);
+                else if (elemName == "restPoseAngularCompliance")
+                    elem->QueryFloatText(&boneData.restPoseAngularCompliance);
+                elem = elem->NextSiblingElement();
+            }
         }
-        else if (elemName == "offset")
+        else if (rootElemName == "offset")
         {
-            elem->QueryFloatAttribute("posX", &boneData.offset.x);
-            elem->QueryFloatAttribute("posY", &boneData.offset.y);
-            elem->QueryFloatAttribute("posZ", &boneData.offset.z);
-            const char* pTarget = elem->Attribute("target");
-            if (pTarget)
+            rootElem->QueryFloatAttribute("x", &boneData.offset.x);
+            rootElem->QueryFloatAttribute("y", &boneData.offset.y);
+            rootElem->QueryFloatAttribute("z", &boneData.offset.z);
+            const char* pTarget = rootElem->Attribute("target");
+            if (!IsEmptyChar(pTarget))
             {
                 boneData.parentBoneName = pTarget;
                 boneData.isParticle = 1;
             }
         }
-        else if (elemName == "collider")
+        else if (rootElemName == "collider")
         {
-            elem->QueryFloatAttribute("margin", &boneData.collisionMargin);
-            elem->QueryFloatAttribute("friction", &boneData.collisionFriction);
-            elem->QueryFloatAttribute("rotationBias", &boneData.collisionRotationBias);
-            elem->QueryFloatAttribute("softness", &boneData.collisionCompliance);
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "margin")
+                    elem->QueryFloatText(&boneData.collisionMargin);
+                else if (elemName == "friction")
+                    elem->QueryFloatText(&boneData.collisionFriction);
+                else if (elemName == "rotationBias")
+                    elem->QueryFloatText(&boneData.collisionRotationBias);
+                else if (elemName == "softness")
+                    elem->QueryFloatText(&boneData.collisionCompliance);
+                else if (elemName == "layerGroup")
+                    boneData.collisionLayerGroup |= GetStringAsBitMask(elem->GetText());
+                else if (elemName == "ignoreLayer")
+                    boneData.collisionCollideLayer &= ~GetStringAsBitMask(elem->GetText());
+                elem = elem->NextSiblingElement();
+            }
         }
     };
 
-    void PhysicsConfigReader::GetLinearConstraint(const std::string& elemName, tinyxml2::XMLElement* elem, ConstraintData& consData) const
+    void PhysicsConfigReader::GetLinearConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, ConstraintData& consData) const
     {
-        if (elemName == "compliance")
+        if (rootElemName.empty())
+            return;
+        if (rootElemName == "compliance")
         {
             elem->QueryFloatAttribute("squish", &consData.complianceSquish);
             elem->QueryFloatAttribute("stretch", &consData.complianceStretch);
         }
-        else if (elemName == "limit")
+        else if (rootElemName == "limit")
         {
             elem->QueryFloatAttribute("squish", &consData.squishLimit);
             elem->QueryFloatAttribute("stretch", &consData.stretchLimit);
             elem->QueryFloatAttribute("angular", &consData.angularLimit);
         }
-        else if (elemName == "damping")
+        else if (rootElemName == "damping")
         {
             elem->QueryFloatAttribute("squish", &consData.squishDamping);
             elem->QueryFloatAttribute("stretch", &consData.stretchDamping);
         }
     };
 
-    void PhysicsConfigReader::GetAngularConstraint(const std::string& elemName, tinyxml2::XMLElement* elem, AngularConstraintData& consData) const
+    void PhysicsConfigReader::GetAngularConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, AngularConstraintData& consData) const
     {
-        if (elemName == "compliance")
+        if (rootElemName.empty())
+            return;
+        if (rootElemName == "compliance")
         {
             elem->QueryFloatAttribute("value", &consData.compliance);
         }
-        else if (elemName == "limit")
+        else if (rootElemName == "limit")
         {
             elem->QueryFloatAttribute("value", &consData.limit);
         }
-        else if (elemName == "damping")
+        else if (rootElemName == "damping")
         {
             elem->QueryFloatAttribute("value", &consData.damping);
         }
     };
 
-    void PhysicsConfigReader::BoneLogging(const std::string& file, const std::string& name, const PhysicsInput::Bone& bone) const
+    void PhysicsConfigReader::BoneLogging(const std::string& file, std::string_view name, const PhysicsInput::Bone& bone) const
     {
-        logger::debug("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / restitution {} / rotationRatio {} / gravity {} / linearRotTorque {}", file, name, bone.mass, bone.damping, bone.inertiaScale, bone.restitution, bone.rotationRatio, bone.gravity, bone.linearRotTorque);
+        logger::debug("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / restitution {} / rotationBlendFactor {} / gravity {} / windFactor {} / linearRotTorque x{} y{}, z{}", file, name, bone.mass, bone.damping, bone.inertiaScale, bone.restitution, bone.rotationBlendFactor, bone.gravity, bone.windFactor, bone.linearRotTorque[0], bone.linearRotTorque[1], bone.linearRotTorque[2]);
         logger::debug("{} : bone offset {} - pos {}{}{}{}", file, name, bone.offset, bone.isParticle ? " /" : "", bone.isParticle ? " target " : "", bone.isParticle ? bone.parentBoneName : "");
         logger::debug("{} : bone restPose {} - limit {} / compliance {} / angularLimit {} / angularCompliance {}", file, name, bone.restPoseLimit, bone.restPoseCompliance, bone.restPoseAngularLimit, bone.restPoseAngularCompliance);
-        logger::debug("{} : bone collider {} - margin {} / friction {} / rotationBias {} / softness {}", file, name, bone.collisionMargin, bone.collisionFriction, bone.collisionRotationBias, bone.collisionCompliance);             
+        logger::debug("{} : bone collider {} - margin {} / friction {} / rotationBias {} / softness {} / layerGroup {:x} / collideLayer {:x}", file, name, bone.collisionMargin, bone.collisionFriction, bone.collisionRotationBias, bone.collisionCompliance, bone.collisionLayerGroup, bone.collisionCollideLayer);             
     }
 
     void PhysicsConfigReader::LinearConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const ConstraintData& cons) const

@@ -2,6 +2,7 @@
 
 namespace MXPBD {
     constexpr RE::NiPoint3 pZero = RE::NiPoint3(0, 0, 0);
+    const RE::NiMatrix3 mZero = RE::NiMatrix3(pZero, pZero, pZero);
     constexpr float Scale_havokWorld = 0.0142875f;
     constexpr float InverseScale_havokWorld = 1.0f / Scale_havokWorld;
     constexpr float Scale_skyrimUnit = 0.046875f;
@@ -18,6 +19,7 @@ namespace MXPBD {
     const DirectX::XMVECTOR vXone = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
     const DirectX::XMVECTOR vYone = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     const DirectX::XMVECTOR vZone = DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+    const DirectX::XMVECTOR vWone = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
     const DirectX::XMVECTOR vHalf = DirectX::XMVectorReplicate(0.5f);
     const DirectX::XMVECTOR vOne = DirectX::XMVectorReplicate(1.0f);
     const DirectX::XMVECTOR vNegOne = DirectX::XMVectorReplicate(-1.0f);
@@ -28,6 +30,8 @@ namespace MXPBD {
     const DirectX::XMVECTOR vInf = DirectX::XMVectorReplicate(FLT_MAX);
     const DirectX::XMVECTOR vFloorHigh = DirectX::XMVectorReplicate(0.25f);
     const DirectX::XMVECTOR vFloorLow = DirectX::XMVectorReplicate(-0.25f);
+
+    const DirectX::XMMATRIX vmZero = {vZero, vZero, vZero, vWone};
 
     const __m128i hash_primes = _mm_set_epi32(0, 83492791, 19349663, 73856093);
 
@@ -143,6 +147,14 @@ namespace MXPBD {
             t.translate.x, t.translate.y, t.translate.z, 1.0f);
     }
 
+    [[nodiscard]] inline DirectX::XMMATRIX NiPoin3x3ToXMMATRIX(const RE::NiPoint3* p) {
+        return DirectX::XMMATRIX(
+            p[0].x, p[0].y, p[0].z, 0.0f,
+            p[1].x, p[1].y, p[1].z, 0.0f,
+            p[2].x, p[2].y, p[2].z, 0.0f,
+            0.0f,   0.0f,   0.0f,   1.0f);
+    }
+
     [[nodiscard]] inline RE::TESObjectREFR* GetREFR(const RE::FormID objectID) {
         return RE::TESForm::LookupByID<RE::TESObjectREFR>(objectID);
     }
@@ -154,20 +166,64 @@ namespace MXPBD {
         return object ? object->As<RE::Actor>() : nullptr;
     }
 
-    inline float rsqrt(float x) {
+    [[nodiscard]] inline float rsqrt(float x) {
         __m128 v = _mm_set_ss(x);
         __m128 y = _mm_rsqrt_ss(v);
-
         __m128 half = _mm_set_ss(0.5f);
         __m128 one_point_five = _mm_set_ss(1.5f);
-
         __m128 y2 = _mm_mul_ss(y, y);
         __m128 xy2 = _mm_mul_ss(v, y2);
         __m128 half_xy2 = _mm_mul_ss(half, xy2);
         __m128 term = _mm_sub_ss(one_point_five, half_xy2);
-
         y = _mm_mul_ss(y, term);
         return _mm_cvtss_f32(y);
+    }
+
+    [[nodiscard]] inline float reciprocal(float x) {
+        __m128 vx = _mm_set_ss(x);
+        __m128 vx0 = _mm_rcp_ss(vx);
+        __m128 vtwo = _mm_set_ss(2.0f);
+        __m128 vnx0 = _mm_mul_ss(vx, vx0);
+        __m128 vSub = _mm_sub_ss(vtwo, vnx0);
+        __m128 vx1 = _mm_mul_ss(vx0, vSub);
+        return _mm_cvtss_f32(vx1);
+    }
+
+    inline float sin(float x) {
+        constexpr float _4DIVPI = 4.0f / DirectX::XM_PI;
+        constexpr float _4DIVPOWPI = 4.0f / (DirectX::XM_PI * DirectX::XM_PI);
+        const float z = x * DirectX::XM_1DIV2PI;
+        x = (z - std::round(z)) * DirectX::XM_2PI;
+        float y = _4DIVPI * x - _4DIVPOWPI * x * std::abs(x);
+        y = 0.225f * (y * std::abs(y) - y) + y;
+        return y;
+    }
+
+    inline std::uint32_t rand_Hash(std::uint32_t seed) {
+        constexpr float n = 1.0f / 16777215.0f;
+        seed = (seed ^ 61) ^ (seed >> 16);
+        seed *= 9;
+        seed = seed ^ (seed >> 4);
+        seed *= 0x27d4eb2d;
+        seed = seed ^ (seed >> 15);
+        return seed;
+    }
+    inline float rand_Hash_Float(std::uint32_t seed) {
+        constexpr float n = 1.0f / 16777215.0f;
+        return (rand_Hash(seed) & 0xFFFFFF) * n;
+    }
+
+    [[nodiscard]] inline std::uint32_t rand_PCG32(std::uint64_t& state) {
+        const std::uint64_t oldstate = state;
+        state = oldstate * 6364136223846793005ULL + 1ULL;
+        const std::uint32_t xorshifted = static_cast<std::uint32_t>(((oldstate >> 18u) ^ oldstate) >> 27u);
+        const std::uint32_t rot = static_cast<std::uint32_t>(oldstate >> 59u);
+        const std::uint32_t result = (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+        return result;
+    }
+    inline float rand_PCG32_Float(std::uint64_t& state) {
+        constexpr float n = 1.0f / 16777215.0f;
+        return (rand_PCG32(state) >> 8) * n;
     }
 
     inline void AtomicMax(float& target, float value) {
@@ -178,4 +234,17 @@ namespace MXPBD {
         while (prev < value && !targetRef.compare_exchange_weak(prev, value, std::memory_order_relaxed))
             ;
     };
+
+    [[nodiscard]] inline RE::NiNode* GetNPCNode(RE::NiAVObject* rootObj) {
+        if (!rootObj)
+            return nullptr;
+        auto npcObj = rootObj->GetObjectByName("NPC");
+        return npcObj ? npcObj->AsNode() : nullptr;
+    }
+    [[nodiscard]] inline RE::NiNode* GetNPCNode(RE::TESObjectREFR* refr) {
+        if (!refr || !refr->loadedData || !refr->loadedData->data3D)
+            return nullptr;
+        auto npcObj = refr->loadedData->data3D->GetObjectByName("NPC");
+        return npcObj ? npcObj->AsNode() : nullptr;
+    }
 }

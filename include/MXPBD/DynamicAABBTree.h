@@ -28,16 +28,23 @@ namespace MXPBD {
             return DirectX::XMVectorGetX(area);
         }
 
-        [[nodiscard]] inline void Fatten(const float margin = 1.0f) {
-            Vector vMargin = DirectX::XMVectorReplicate(margin);
-            DirectX::XMVectorSetW(vMargin, 0.0f);
+        [[nodiscard]] inline Vector GetCenter() const {
+            return DirectX::XMVectorMultiply(DirectX::XMVectorAdd(max, min), vHalf);
+        }
+
+        [[nodiscard]] inline Vector GetExtents(const float scale = 1.0f) const {
+            return DirectX::XMVectorScale(DirectX::XMVectorSubtract(max, min), 0.5f * scale);
+        }
+
+        inline void Fatten(const float margin = 1.0f) {
+            const Vector vMargin = DirectX::XMVectorSetW(DirectX::XMVectorReplicate(margin), 0.0f);
             min = DirectX::XMVectorSubtract(min, vMargin);
             max = DirectX::XMVectorAdd(max, vMargin);
         }
 
         [[nodiscard]] inline AABB GetWorldAABB(const Vector& pos, const Quaternion& rot, const float scale) const {
-            const Vector centerLocal = DirectX::XMVectorScale(DirectX::XMVectorAdd(max, min), 0.5f);
-            const Vector extentsLocal = DirectX::XMVectorScale(DirectX::XMVectorSubtract(max, min), 0.5f * scale);
+            const Vector centerLocal = GetCenter();
+            const Vector extentsLocal = GetExtents(scale);
 
             const DirectX::XMMATRIX R = DirectX::XMMatrixRotationQuaternion(rot);
             const Vector centerWorld = DirectX::XMVectorAdd(pos, XMVector3TransformNormal(DirectX::XMVectorScale(centerLocal, scale), R));

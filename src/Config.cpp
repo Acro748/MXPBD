@@ -135,13 +135,25 @@ namespace Mus {
                 {
                     GroundDetectQuality = GetUIntValue(variableValue);
                 }
+                else if (variableName == "WindDetectRange")
+                {
+                    WindDetectRange = GetFloatValue(variableValue);
+                }
+                else if (variableName == "WindDetectQuality")
+                {
+                    WindDetectQuality = GetUIntValue(variableValue);
+                }
                 else if (variableName == "ValidBoneWeightThreshold")
                 {
                     ValidBoneWeightThreshold = GetFloatValue(variableValue);
                 }
                 else if (variableName == "CullingDistance")
                 {
-                    CullingDistance = GetFloatValue(variableValue) * MXPBD::InverseScale_skyrimUnit;
+                    CullingDistance = GetFloatValue(variableValue);
+                }
+                else if (variableName == "CollisionQualityByDistance")
+                {
+                    CollisionQualityByDistance = GetBoolValue(variableValue);
                 }
                 else if (variableName == "ColliderHashTableSize")
                 {

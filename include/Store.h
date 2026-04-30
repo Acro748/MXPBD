@@ -4,12 +4,6 @@ namespace Mus {
 	constexpr RE::NiPoint3 emptyPoint = RE::NiPoint3(0, 0, 0);
 	constexpr RE::NiMatrix3 emptyRotate = RE::NiMatrix3();
 
-	extern std::atomic<bool> IsRaceSexMenu;
-	extern std::atomic<bool> IsMainMenu;
-	extern std::atomic<bool> IsGamePaused;
-	extern std::atomic<bool> IsSaveLoading;
-	extern std::atomic<bool> IsInLoading;
-
 	constexpr double PI = 3.14159265358979323846;
 	constexpr float toDegree = 180.0 / PI;
 	constexpr float toRadian = PI / 180.0;

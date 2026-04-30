@@ -17,7 +17,7 @@ namespace MXPBD
         if (!a_actor || !a_actor->loadedData || !a_actor->loadedData->data3D)
             return;
         logger::info("Adding physics {:x}", a_actor->formID);
-        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), XPBDWorld::skeleton, 0);
+        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), XPBDWorld::kSkeleton, 0, false);
     }
 
     void XPBDWorldUpdater::AddFacegenPhysicsToWorld(RE::Actor* a_actor) const
@@ -25,7 +25,7 @@ namespace MXPBD
         if (!a_actor || !a_actor->loadedData || !a_actor->loadedData->data3D)
             return;
         logger::info("Adding physics {:x}", a_actor->formID);
-        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), XPBDWorld::facegen, 0);
+        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), XPBDWorld::kFacegen, 0, true);
     }
 
     void XPBDWorldUpdater::AddClothPhysicsToWorld(RE::Actor* a_actor, RE::NiNode* root, std::uint32_t biped) const
@@ -38,7 +38,7 @@ namespace MXPBD
             return;
         }
         logger::info("Adding physics {:x}", a_actor->formID);
-        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, root, XPBDWorld::cloth, biped);
+        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, root, XPBDWorld::kCloth, biped, true);
     }
 
     void XPBDWorldUpdater::UpdatePhysicsSetting(RE::Actor* a_actor) const

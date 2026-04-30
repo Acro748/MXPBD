@@ -6,12 +6,13 @@ namespace MXPBD {
         XPBDWorld();
 
         enum RootType {
-            skeleton,
-            facegen,
-            cloth,
-            weapon,
-            collider,
-            none,
+            kNone,
+            kSkeleton,
+            kFacegen,
+            kCloth,
+            kWeapon,
+            kStatic,
+            kCollider,
             total
         };
 
@@ -20,35 +21,56 @@ namespace MXPBD {
         void ResetAll();
         void Reset(RE::TESObjectREFR* object);
         void RemovePhysics(const RE::FormID objectID);
-        void RemovePhysics(RE::TESObjectREFR* object, const RootType rootType, const std::uint32_t bipedSlot);
-        void TogglePhysics(const RE::FormID objectID, bool isDisable);
+        void RemovePhysics(const RE::FormID objectID, const RootType rootType, const std::uint32_t bipedSlot);
+        void TogglePhysics(const RE::FormID objectID, bool disable);
         void RunPhysicsWorld(const float deltaTime);
 
         inline void SetIteration(const std::uint32_t iteration) {
             ITERATION_MAX = iteration;
         }
+
         inline void SetGridSize(const float smallGridSize, const float largeGridSize) {
             SMALL_GRID_SIZE = smallGridSize;
             LARGE_GRID_SIZE = largeGridSize;
         }
+
         inline void SetRotationClampSpeed(const float rotationClampSpeed) {
             ROTATION_CLAMP = ROTATION_CLAMP_DEFAULT * rotationClampSpeed;
         }
+
         inline void SetCollisionConvergence(const float collisionConvergence) {
             COL_CONVERGENCE = collisionConvergence;
         }
+
         inline void SetGroundDetectRange(const float groundDetectRange) {
-            GROUND_DETECT_RANGE = groundDetectRange;
+            GROUND_DETECT_RANGE = groundDetectRange * InverseScale_skyrimUnit;
             groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         }
-        inline void SetGroundDetectQuality(const std::uint32_t groundDetectQuality) {
-            GROUND_DETECT_QUALITY = groundDetectQuality;
+        inline void SetGroundDetectQuality(const std::uint8_t groundDetectQuality) {
+            GROUND_DETECT_QUALITY = (1u << groundDetectQuality);
+        }
+
+        inline void SetWindDetectRange(const float windDetectRange) {
+            WIND_DETECT_RANGE = windDetectRange * InverseScale_skyrimUnit;
+        }
+        inline void SetWindDetectQuality(const std::uint8_t windDetectRangeQuality) {
+            WIND_DETECT_QUALITY = (1u << windDetectRangeQuality);
+        }
+
+        inline void SetColliderHashTableSize(const std::uint8_t colliderHashTableSize) {
+            COL_HASH_TABLE_SIZE = (1u << colliderHashTableSize);
         }
         inline void SetCullingDistance(const float cullingDistance) {
-            CULLING_DISTANCE_SQ = DirectX::XMVectorReplicate(cullingDistance * cullingDistance);
+            CULLING_DISTANCE_SQ = (cullingDistance * InverseScale_skyrimUnit) * (cullingDistance * InverseScale_skyrimUnit);
+            INV_CULLING_DISTANCE_SQ = reciprocal(CULLING_DISTANCE_SQ);
         }
-        inline void SetColliderHashTableSize(const std::uint8_t colliderHashTableSize) {
-            COL_HASH_TABLE_SIZE = (1 << colliderHashTableSize);
+        inline void SetCollisionQualityByDistance(const bool collisionQualityByDistanceEnable) {
+            COL_QUALITY_BY_LOD = collisionQualityByDistanceEnable;
+        }
+
+        inline void SetWind(const float newWindSpeed, const float newWindAngle) {
+            windSpeed = newWindSpeed * InverseScale_skyrimUnit * 1000.0f;
+            windAngle = newWindAngle;
         }
 
     private:
@@ -58,14 +80,20 @@ namespace MXPBD {
         float SMALL_GRID_SIZE = 30.0f;
         float LARGE_GRID_SIZE = 100.0f;
         float ROTATION_CLAMP = 0.2f;
-        float COL_CONVERGENCE = 0.1f;
-        float GROUND_DETECT_RANGE = 25.0f;
-        std::uint32_t GROUND_DETECT_QUALITY = 30;
-        Vector CULLING_DISTANCE_SQ = DirectX::XMVectorReplicate(std::powf(100.0f * InverseScale_skyrimUnit, 2.0f));
-        std::uint32_t COL_HASH_TABLE_SIZE = 1 << 10;
+        float COL_CONVERGENCE = 0.25f;
 
+        float GROUND_DETECT_RANGE = 0.15f * InverseScale_skyrimUnit;
+        std::uint32_t GROUND_DETECT_QUALITY = 1 << 5;
         Vector groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         const Vector groundRayTo = DirectX::XMVectorSet(0.0f, 0.0f, -5.0f, 0.0f);
+
+        float WIND_DETECT_RANGE = 20.0f * InverseScale_skyrimUnit;
+        std::uint32_t WIND_DETECT_QUALITY = 1 << 5;
+
+        float CULLING_DISTANCE_SQ = (100.0f * InverseScale_skyrimUnit) * (100.0f * InverseScale_skyrimUnit);
+        float INV_CULLING_DISTANCE_SQ = reciprocal(CULLING_DISTANCE_SQ);
+        bool COL_QUALITY_BY_LOD = true;
+        std::uint32_t COL_HASH_TABLE_SIZE = 1 << 10;
 
         bool orderDirty = false;
         bool isNeedColorGraphUpdate = false;
@@ -75,19 +103,26 @@ namespace MXPBD {
         float objectAccelerationTime = 0.0f;
         float timeAccumulator = 0.0f;
 
-        struct CleanObject {
+        float windSpeed = 0.0f;
+        float windAngle = 0.0f;
+
+        std::uint64_t totalColCandidates = 0;
+        std::uint64_t colCandidatesStackCount = 0;
+
+        struct RemoveData {
             std::uint32_t objIdx = UINT32_MAX;
             std::uint32_t rootIdx = UINT32_MAX;
 
-            bool operator==(const CleanObject& co) const {
+            bool operator==(const RemoveData& co) const {
                 return objIdx == co.objIdx && rootIdx == co.rootIdx;
             }
         };
-        struct CleanObjectHash {
-            std::size_t operator()(const CleanObject& co) const {
+        struct RemoveDataHash {
+            std::size_t operator()(const RemoveData& co) const {
                 return static_cast<std::uint64_t>(co.objIdx) << 32 | co.rootIdx;
             }
         };
+        using RemoveDataList = std::unordered_set<RemoveData, RemoveDataHash>;
 
         struct ObjectDatas {
             std::vector<RE::FormID> objectID;
@@ -107,8 +142,12 @@ namespace MXPBD {
             std::vector<Vector> velocity;
             std::vector<Vector> acceleration;
             std::vector<AABB> boundingAABB;
-            std::vector<std::uint8_t> isDisable;                 // just physics disable
-            std::vector<std::uint8_t> isDisableByToggle;                 // just physics disable
+            std::vector<std::uint8_t> isStatic;
+            std::vector<float> windMultiplier;
+            std::vector<std::uint8_t> maxManifoldPoints;         // collision quality by LOD / 1 - 4
+            std::vector<std::uint8_t> isDisable;                 // physics disable by culling or trigger
+            std::vector<std::uint8_t> isDisableByToggle;         // physics disable by trigger
+            std::vector<std::uint64_t> randState;
         };
         ObjectDatas objectDatas;
 
@@ -134,21 +173,22 @@ namespace MXPBD {
             std::vector<float> damping;
             std::vector<float> inertiaScale;
             std::vector<float> restitution;
-            std::vector<float> rotationRatio; // only for 3 DOF
+            std::vector<float> rotationBlendFactor; // only for 3 DOF
             std::vector<Vector> gravity;
             std::vector<Vector> offset;
             std::vector<float> invMass;
+            std::vector<float> windFactor;
 
+            // restPose
             std::vector<float> restPoseLimit;
             std::vector<float> restPoseCompliance;
             std::vector<float> restPoseLambda;
-
             std::vector<float> restPoseAngularLimit;
             std::vector<float> restPoseAngularCompliance;
             std::vector<float> restPoseAngularLambda;
 
-            // fake rotation setting
-            std::vector<float> linearRotTorque; // only for 6 DOF
+            // fake rotation / only for 6 DOF
+            std::vector<DirectX::XMMATRIX> linearRotTorque;
 
             // collision
             std::vector<float> collisionMargin;
@@ -156,6 +196,8 @@ namespace MXPBD {
             std::vector<float> collisionFriction;
             std::vector<float> collisionRotationBias;
             std::vector<float> collisionCompliance;
+            std::vector<std::uint32_t> layerGroup;
+            std::vector<std::uint32_t> collideLayer;
 
             struct CollisionCache {
                 Vector n = vZero;
@@ -181,10 +223,14 @@ namespace MXPBD {
             std::vector<std::uint32_t> rootIdx;                     // Root
             std::vector<std::uint32_t> depth;
 
-            std::vector<float> worldScale;
-            std::vector<RE::NiMatrix3> worldRot;
-            std::vector<RE::NiPoint3> orgLocalPos;                  // backup
-            std::vector<RE::NiMatrix3> orgLocalRot;                 // backup
+            std::vector<Vector> prevNodeWorldPos;
+            std::vector<Vector> targetNodeWorldPos;
+            std::vector<Quaternion> prevNodeWorldRot;
+            std::vector<Quaternion> targetNodeWorldRot;
+
+            std::vector<float> orgWorldScale;
+            std::vector<Vector> orgLocalPos;     // backup
+            std::vector<Quaternion> orgLocalRot;   // backup
         };
         PhysicsBones physicsBones;
         std::vector<std::uint32_t> physicsBonesOrder;
@@ -353,37 +399,12 @@ namespace MXPBD {
         DynamicAABBTree globalAABBTree;
         std::vector<std::uint32_t> objIdxToTreeNodeIdx;
 
-        class GroundHitCollector : public RE::hkpRayHitCollector {
-        public:
-            void AddRayHit(const RE::hkpCdBody& a_body, const RE::hkpShapeRayCastCollectorOutput& a_hitInfo) override {
-                if (rayHit.hitFraction <= a_hitInfo.hitFraction)
-                    return;
-                const RE::hkpCdBody* hkpCdBody = &a_body;
-                while (hkpCdBody->parent != nullptr) {
-                    hkpCdBody = hkpCdBody->parent;
-                }
-                const RE::hkpCollidable* collidable = static_cast<const RE::hkpCollidable*>(hkpCdBody);
-                const RE::COL_LAYER layer = collidable->GetCollisionLayer();
-
-                if (layer != RE::COL_LAYER::kStatic &&
-                    layer != RE::COL_LAYER::kGround &&
-                    layer != RE::COL_LAYER::kTerrain &&
-                    layer != RE::COL_LAYER::kStairHelper) {
-                    return;
-                }
-                rayHit.rootCollidable = collidable;
-                rayHit.hitFraction = a_hitInfo.hitFraction;
-                rayHit.normal = a_hitInfo.normal;
-                earlyOutHitFraction = a_hitInfo.hitFraction;
-            }
-            RE::hkpWorldRayCastOutput rayHit;
-        };
-
         void UpdateObjectData(const float deltaTime);
         void ClampObjectRotation();
-        void PrefetchBoneDatas();
+        void PrefetchBoneDatas(const float alpha, const bool isFirstStep);
         void UpdateGlobalAABBTree();
         void ObjectCulling();
+        void UpdateWindStrength();
         void PredictBones(const float deltaTime);
         void CreateLocalSpatialHash();
         void GenerateCollisionManifolds();
@@ -398,7 +419,10 @@ namespace MXPBD {
         AABB GetObjectAABB(const std::uint32_t objIdx) const;
         std::vector<AABBPair> GetAABBPairs(const std::uint32_t objIdx);
 
-        bool ConvexHullvsConvexHull(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
+        bool ConvexHullvsConvexHull(const std::uint32_t ciA, const std::uint32_t ciB, ContactManifold& outManifold);
+
+        std::uint32_t AllocateObject(RE::TESObjectREFR* object);
+        std::uint32_t AllocateRoot(const std::uint32_t objIdx, const ObjectDatas::Root& rootData);
 
         std::uint32_t AllocateBone();
         void ReserveBone(std::uint32_t n);
@@ -414,10 +438,22 @@ namespace MXPBD {
         void ResetBone(const std::uint32_t bi);
         void Reset(const RE::FormID objectID);
         void RemoveCollider(RE::TESObjectREFR* object, const ObjectDatas::Root& targetRoot);
-        void CleanPhysics(const std::unordered_set<CleanObject, CleanObjectHash>& cleanList);
+        void RemovePhysics(const RemoveDataList& cleanList);
         void ReorderMaps();
 
         void UpdateChildTreeData(RE::NiNode* node) const;
         void UpdateChildTreeWorldTransforms(RE::NiNode* node) const;
+
+        inline bool IsDisable(const std::uint32_t objIdx) const {
+            return objectDatas.roots.size() < objIdx || objectDatas.isDisable[objIdx];
+        };
+
+        // physicsBone idx
+        inline bool IsCollide(const std::uint32_t targetLayerGroupBoneIdx, const std::uint32_t ownCollideLayerBoneIdx) const {
+            return (physicsBones.layerGroup[targetLayerGroupBoneIdx] & physicsBones.collideLayer[ownCollideLayerBoneIdx]) != 0;
+        };
+        inline bool IsCollideGround(const std::uint32_t ownCollideLayerBoneIdx) const {
+            return (CollisionLayer::kGround & physicsBones.collideLayer[ownCollideLayerBoneIdx]) != 0;
+        };
     };
 } // namespace MXPBD

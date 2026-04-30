@@ -79,6 +79,7 @@ namespace {
     }
     void kDataloadedFunction()
     {
+        MXPBD::GetCollisionLayerEnum();
         Mus::Config::GetSingleton().LoadConfig();
         Mus::Config::GetSingleton().LoadSkeletonFile();
         Mus::ConditionManager::GetSingleton().SortConditions();
@@ -120,11 +121,9 @@ namespace {
                     kNewGameFunction();
                     break;
                 case SKSE::MessagingInterface::kPreLoadGame: // Player selected a game to load, but it hasn't loaded yet.
-                    Mus::IsSaveLoading.store(true);
                     // Data will be the name of the loaded save.
                     break;
                 case SKSE::MessagingInterface::kPostLoadGame: // Player's selected save game has finished loading.
-                    Mus::IsSaveLoading.store(false);
                     // Data will be a boolean indicating whether the load was successful.
                     break;
                 case SKSE::MessagingInterface::kSaveGame: // The player has saved a game.

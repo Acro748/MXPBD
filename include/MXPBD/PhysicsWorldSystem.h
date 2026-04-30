@@ -8,6 +8,7 @@ namespace MXPBD {
         public Mus::IEventListener<Mus::FacegenNiNodeEvent>,
         public Mus::IEventListener<Mus::ArmorAttachEvent>,
         public Mus::IEventListener<Mus::ArmorDetachEvent>,
+        public Mus::IEventListener<Mus::Load3DEvent>,
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>
     {
     public:
@@ -17,6 +18,8 @@ namespace MXPBD {
         }
 
         void Init();
+        void LoadConfigOnPhysicsWorld() const;
+
         void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider = true);
         void UpdatePhysicsSetting(RE::TESObjectREFR* object, PhysicsInput input);
         void Reset() const;
@@ -28,6 +31,7 @@ namespace MXPBD {
         void UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode);
     private:
         std::unique_ptr<XPBDWorld> physicsWorld;
+        std::uint8_t isRaceSexMenuOpen = 0;
 
         void AddSkeletonPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode);
         void AddFacegenPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode);
@@ -41,7 +45,7 @@ namespace MXPBD {
             RenameStringMap renameMap;
             struct RawData {
                 RE::NiPointer<RE::NiAVObject> rootNode = nullptr;
-                XPBDWorld::RootType rootType = XPBDWorld::RootType::none;
+                XPBDWorld::RootType rootType = XPBDWorld::RootType::kNone;
                 std::uint32_t bipedSlot = 0;
                 bool operator==(const RawData& other) const {
                     return rootType == other.rootType && bipedSlot == other.bipedSlot;
@@ -70,8 +74,8 @@ namespace MXPBD {
         bool ResetIfChanged(RE::TESObjectREFR* refr);
 
         const std::string_view BSFaceGenNiNodeSkinned = "BSFaceGenNiNodeSkinned";
-        void MergeNodeTree(RE::NiNode* skeleton, RE::NiNode* root, std::string_view prefix, RenameStringMap& map, bool isRenameOrgTree) const;
-        void MergeArmorNodeTree(RE::NiNode* skeletonRoot, RE::NiNode* armorRoot, std::string_view prefix, RenameStringMap& map) const;
+        void MergeNodeTree(RE::NiNode* skeleton, RE::NiNode* root, const std::string& prefix, RenameStringMap& map, bool isRenameOrgTree) const;
+        void MergeArmorNodeTree(RE::NiNode* skeletonRoot, RE::NiNode* armorRoot, const std::string& prefix, RenameStringMap& map) const;
         void MergeFacegenNodeTree(RE::NiNode* skeletonRoot, RE::BSFaceGenNiNode* facegenRoot, RE::BSGeometry* geo, PhysicsInput& input, RenameStringMap& map) const;
         void RemoveMergedNode(RE::NiNode* root, std::string_view prefix) const;
         void RemoveRenameMap(RenameStringMap& map, std::string_view prefix) const;
@@ -85,6 +89,7 @@ namespace MXPBD {
         void onEvent(const Mus::FacegenNiNodeEvent& e) override;
         void onEvent(const Mus::ArmorAttachEvent& e) override;
         void onEvent(const Mus::ArmorDetachEvent& e) override;
+        void onEvent(const Mus::Load3DEvent& e) override;
 
         EventResult ProcessEvent(const RE::MenuOpenCloseEvent* evn, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
     };

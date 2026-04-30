@@ -6,19 +6,37 @@ namespace MXPBD
     void XPBDWorldSystem::Init()
     {
         physicsWorld = std::make_unique<XPBDWorld>();
-        physicsWorld->SetIteration(Mus::Config::GetSingleton().GetIterationMax());
-        physicsWorld->SetGridSize(Mus::Config::GetSingleton().GetSmallGridSize(), Mus::Config::GetSingleton().GetLargeGridSize());
-        physicsWorld->SetRotationClampSpeed(Mus::Config::GetSingleton().GetRotationClampSpeed());
-        physicsWorld->SetCollisionConvergence(Mus::Config::GetSingleton().GetCollisionConvergence());
-        physicsWorld->SetGroundDetectRange(Mus::Config::GetSingleton().GetGroundDetectRange());
-        physicsWorld->SetGroundDetectQuality(Mus::Config::GetSingleton().GetGroundDetectQuality());
-        physicsWorld->SetCullingDistance(Mus::Config::GetSingleton().GetCullingDistance());
-        physicsWorld->SetColliderHashTableSize(Mus::Config::GetSingleton().GetColliderHashTableSize());
+        LoadConfigOnPhysicsWorld();
 
         Mus::g_frameEventDispatcher.addListener(this);
         Mus::g_facegenNiNodeEventDispatcher.addListener(this);
         Mus::g_armorAttachEventDispatcher.addListener(this);
         Mus::g_armorDetachEventDispatcher.addListener(this);
+        Mus::g_load3DEventDispatcher.addListener(this);
+
+        if (auto ui = RE::UI::GetSingleton(); ui)
+            ui->AddEventSink(this);
+    }
+
+    void MXPBD::XPBDWorldSystem::LoadConfigOnPhysicsWorld() const
+    {
+        physicsWorld->SetIteration(Mus::Config::GetSingleton().GetIterationMax());
+
+        physicsWorld->SetGridSize(Mus::Config::GetSingleton().GetSmallGridSize(), Mus::Config::GetSingleton().GetLargeGridSize());
+
+        physicsWorld->SetRotationClampSpeed(Mus::Config::GetSingleton().GetRotationClampSpeed());
+
+        physicsWorld->SetCollisionConvergence(Mus::Config::GetSingleton().GetCollisionConvergence());
+
+        physicsWorld->SetGroundDetectRange(Mus::Config::GetSingleton().GetGroundDetectRange());
+        physicsWorld->SetGroundDetectQuality(Mus::Config::GetSingleton().GetGroundDetectQuality());
+
+        physicsWorld->SetWindDetectRange(Mus::Config::GetSingleton().GetWindDetectRange());
+        physicsWorld->SetWindDetectQuality(Mus::Config::GetSingleton().GetWindDetectQuality());
+
+        physicsWorld->SetCullingDistance(Mus::Config::GetSingleton().GetCullingDistance());
+        physicsWorld->SetColliderHashTableSize(Mus::Config::GetSingleton().GetColliderHashTableSize());
+        physicsWorld->SetCollisionQualityByDistance(Mus::Config::GetSingleton().GetCollisionQualityByDistance());
     }
 
     void XPBDWorldSystem::AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider)
@@ -26,19 +44,19 @@ namespace MXPBD
         if (!object)
             return;
         UpdateRawConvexHulls(object, nullptr);
-        if (rootType == XPBDWorld::RootType::skeleton)
+        if (rootType == XPBDWorld::RootType::kSkeleton)
         {
             AddSkeletonPhysics(object, rootNode);
         }
-        else if (rootType == XPBDWorld::RootType::facegen)
+        else if (rootType == XPBDWorld::RootType::kFacegen)
         {
             AddFacegenPhysics(object, rootNode);
         }
-        else if (rootType == XPBDWorld::RootType::cloth)
+        else if (rootType == XPBDWorld::RootType::kCloth)
         {
             AddClothPhysics(object, rootNode, bipedSlot);
         }
-        else if (rootType == XPBDWorld::RootType::weapon)
+        else if (rootType == XPBDWorld::RootType::kWeapon)
         {
         }
         if (isAddCollider)
@@ -57,7 +75,7 @@ namespace MXPBD
         physicsWorld->Reset(object);
         std::vector<RawConvexHullData> rawConvexHullDatas;
         {
-            ObjectData::RawData targetCollider = {.rootType = XPBDWorld::RootType::collider, .bipedSlot = 0};
+            ObjectData::RawData targetCollider = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
             std::unique_lock ul(objectDatasLock);
             ObjectDataPtr objData = FindObjectDataPtr_unsafe(object);
             if (!objData)
@@ -118,7 +136,7 @@ namespace MXPBD
         if (it == objData->rawDatas.end())
             return;
         objData->rawDatas.erase(it);
-        physicsWorld->RemovePhysics(object, rootType, bipedSlot);
+        physicsWorld->RemovePhysics(object->formID, rootType, bipedSlot);
     }
 
     XPBDWorldSystem::ObjectDataPtr XPBDWorldSystem::GetOrCreateObjectDataPtr_unsafe(RE::TESObjectREFR* object)
@@ -208,7 +226,7 @@ namespace MXPBD
                 if (!objData->rawDatas.empty())
                 {
                     ObjectData::RawData findData = {
-                        .rootType = XPBDWorld::RootType::skeleton,
+                        .rootType = XPBDWorld::RootType::kSkeleton,
                         .bipedSlot = 0};
                     auto skeletonIt = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), findData);
                     if (skeletonIt != objData->rawDatas.end())
@@ -241,7 +259,7 @@ namespace MXPBD
         return isChanged;
     }
 
-    void XPBDWorldSystem::MergeNodeTree(RE::NiNode* skeleton, RE::NiNode* root, std::string_view prefix, RenameStringMap& map, bool isRenameOrgTree) const
+    void XPBDWorldSystem::MergeNodeTree(RE::NiNode* skeleton, RE::NiNode* root, const std::string& prefix, RenameStringMap& map, bool isRenameOrgTree) const
     {
         if (!skeleton || !root || prefix.empty())
             return;
@@ -250,7 +268,7 @@ namespace MXPBD
         if (!refr)
             return;
 
-        auto npc = skeleton->GetObjectByName("NPC");
+        auto npc = GetNPCNode(skeleton);
         auto npcNode = npc ? npc->AsNode() : nullptr;
         if (!npcNode)
             return;
@@ -259,11 +277,11 @@ namespace MXPBD
             RE::BSVisit::TraverseScenegraphObjects(tree, [&](RE::NiAVObject* obj) {
                 if (!obj || obj->name.empty())
                     return RE::BSVisit::BSVisitControl::kContinue;
-                std::string_view sv = obj->name.c_str();
-                if (sv.starts_with(prefix))
+                std::string_view name = obj->name.c_str();
+                if (name.starts_with(prefix))
                     return RE::BSVisit::BSVisitControl::kContinue;
-                const std::string newName = std::string(prefix) + sv.data();
-                map.emplace(sv, newName);
+                const std::string newName = prefix + name.data();
+                map.emplace(name, newName);
                 Mus::setNiNodeName(obj->AsNode(), newName.c_str());
                 return RE::BSVisit::BSVisitControl::kContinue;
             });
@@ -286,7 +304,7 @@ namespace MXPBD
 
         auto merge = [&](auto&& self, RE::NiNode* dst, RE::NiNode* src) -> void {
             auto& children = src->GetChildren();
-            for (std::int32_t i = static_cast<std::int32_t>(children.size()) - 1; i >= 0; --i)
+            for (std::int32_t i = static_cast<std::int32_t>(children.capacity()) - 1; i >= 0; --i)
             {
                 auto srcChildNode = children[i] ? children[i]->AsNode() : nullptr;
                 if (!srcChildNode)
@@ -296,7 +314,8 @@ namespace MXPBD
                     self(self, dst, srcChildNode);
                     continue;
                 }
-                if (std::string_view(srcChildNode->name.c_str()) == BSFaceGenNiNodeSkinned)
+                std::string_view srcName = srcChildNode->name.c_str();
+                if (srcName == BSFaceGenNiNodeSkinned)
                     continue;
                 auto dstChild = npcNode->GetObjectByName(srcChildNode->name);
                 if (dstChild && dstChild->AsNode())
@@ -305,12 +324,12 @@ namespace MXPBD
                 }
                 else
                 {
-                    logger::debug("{:x} : try attach node tree root {} on {}", refr->formID, srcChildNode->name.c_str(), dst->name.c_str());
+                    logger::debug("{:x} : try attach node tree root {} on {}", refr->formID, srcName, dst->name.empty() ? "dst" : dst->name.c_str());
                     auto cloneTree = cloneNodeTree(srcChildNode);
                     if (cloneTree)
                     {
                         dst->AttachChild(cloneTree);
-                        logger::debug("{:x} : attached node tree root {} on {}", refr->formID, cloneTree->name.c_str(), dst->name.c_str());
+                        logger::debug("{:x} : attached node tree root {} on {}", refr->formID, srcName, dst->name.empty() ? "dst" : dst->name.c_str());
                     }
                 }
             }
@@ -318,7 +337,7 @@ namespace MXPBD
         merge(merge, npcNode, root);
     }
 
-    void XPBDWorldSystem::MergeArmorNodeTree(RE::NiNode* skeletonRoot, RE::NiNode* armorRoot, std::string_view prefix, RenameStringMap& map) const
+    void XPBDWorldSystem::MergeArmorNodeTree(RE::NiNode* skeletonRoot, RE::NiNode* armorRoot, const std::string& prefix, RenameStringMap& map) const
     {
         if (!skeletonRoot || !armorRoot)
             return;
@@ -335,7 +354,7 @@ namespace MXPBD
         if (!refr || !refr->data.objectReference)
             return;
 
-        auto npc = skeletonRoot->GetObjectByName("NPC");
+        auto npc = GetNPCNode(skeletonRoot);
         auto npcNode = npc ? npc->AsNode() : nullptr;
         if (!npcNode)
             return;
@@ -448,7 +467,7 @@ namespace MXPBD
                     {
                         RE::NiTransform invTransform = headNode->local.Invert();
                         auto& children = origRootNode->GetChildren();
-                        for (std::int32_t ci = static_cast<std::int32_t>(children.size()) - 1; ci >= 0; --ci)
+                        for (std::int32_t ci = static_cast<std::int32_t>(children.capacity()) - 1; ci >= 0; --ci)
                         {
                             auto child = children[ci];
                             auto childNode = child ? child->AsNode() : nullptr;
@@ -493,17 +512,17 @@ namespace MXPBD
             return;
         auto remove = [&](auto&& self, RE::NiNode* node, std::string_view prefix) -> void {
             auto& children = node->GetChildren();
-            for (std::int32_t i = static_cast<std::int32_t>(children.size()) - 1; i >= 0; --i)
+            for (std::int32_t i = static_cast<std::int32_t>(children.capacity()) - 1; i >= 0; --i)
             {
-                auto child = children[i].get();
-                if (!child)
+                auto childNode = children[i] ? children[i]->AsNode() : nullptr;
+                if (!childNode)
                     continue;
-                std::string_view sv = child->name.c_str();
-                if (sv.starts_with(prefix))
+                if (!childNode->name.empty() && std::string_view(childNode->name.c_str()).starts_with(prefix))
                 {
+                    logger::debug("Detach {} node on {}", childNode->name.c_str(), node->name.empty() ? "parent" : node->name.c_str());
                     node->DetachChildAt(i);
                 }
-                else if (auto childNode = child->AsNode())
+                else
                 {
                     self(self, childNode, prefix);
                 }
@@ -535,8 +554,9 @@ namespace MXPBD
             if (!rootNode)
                 return;
         }
-        ObjectData::RawData data = {.rootType = XPBDWorld::RootType::skeleton, .bipedSlot = 0};
+        ObjectData::RawData data = {.rootType = XPBDWorld::RootType::kSkeleton, .bipedSlot = 0};
         data.input = Mus::ConditionManager::GetSingleton().GetCondition(GetActor(object));
+        PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kSkeleton, data.input);
         data.bipedSlot = 0;
         std::vector<RawConvexHullData> rawConvexHullDatas;
         {
@@ -547,8 +567,8 @@ namespace MXPBD
             std::lock_guard lg(objData->lock);
             ul.unlock();
             {
-                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::skeleton, .bipedSlot = 0};
-                auto npcNode = rootNode->GetObjectByName("NPC");
+                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kSkeleton, .bipedSlot = 0};
+                auto npcNode = GetNPCNode(rootNode);
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it != objData->rawDatas.end())
                 {
@@ -566,7 +586,7 @@ namespace MXPBD
                 }
             }
             {
-                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::collider, .bipedSlot = 0};
+                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it != objData->rawDatas.end())
                 {
@@ -575,7 +595,7 @@ namespace MXPBD
             }
         }
         PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, data.input, rawConvexHullDatas);
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::skeleton, data.input);
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kSkeleton, data.input);
     }
 
     void XPBDWorldSystem::AddFacegenPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode)
@@ -600,14 +620,14 @@ namespace MXPBD
             std::lock_guard lg(objData->lock);
             ul.unlock();
             {
-                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::facegen, .bipedSlot = 0};
+                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kFacegen, .bipedSlot = 0};
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it == objData->rawDatas.end())
                     return;
                 newInput = it->input;
             }
             {
-                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::collider, .bipedSlot = 0};
+                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it != objData->rawDatas.end())
                 {
@@ -617,7 +637,7 @@ namespace MXPBD
         }
         newInput.bipedSlot = 0;
         PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, rawConvexHullDatas);
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::facegen, newInput);
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kFacegen, newInput);
     }
 
     void XPBDWorldSystem::AddClothPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const std::uint32_t bipedSlot)
@@ -636,14 +656,14 @@ namespace MXPBD
             std::lock_guard lg(objData->lock);
             ul.unlock();
             {
-                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::cloth, .bipedSlot = bipedSlot};
+                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCloth, .bipedSlot = bipedSlot};
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it == objData->rawDatas.end())
                     return;
                 newInput = it->input;
             }
             {
-                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::collider, .bipedSlot = 0};
+                ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it != objData->rawDatas.end())
                 {
@@ -653,7 +673,7 @@ namespace MXPBD
         }
         newInput.bipedSlot = bipedSlot;
         PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, rawConvexHullDatas);
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::cloth, newInput);
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kCloth, newInput);
     }
 
     void XPBDWorldSystem::AddColliders(RE::TESObjectREFR* object, RE::NiNode* rootNode)
@@ -684,7 +704,7 @@ namespace MXPBD
                     newInput.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
                 }
             }
-            const ObjectData::RawData target = {.rootType = XPBDWorld::RootType::collider, .bipedSlot = 0};
+            const ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
             if (it == objData->rawDatas.end())
                 return;
@@ -709,7 +729,7 @@ namespace MXPBD
             it->input = newInput;
         }
 
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::collider, newInput);
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kCollider, newInput);
     }
 
     void XPBDWorldSystem::ReloadPhysics(RE::TESObjectREFR* object)
@@ -804,7 +824,7 @@ namespace MXPBD
         std::lock_guard lg(objData->lock);
         ul.unlock();
 
-        ObjectData::RawData target = {.rootType = XPBDWorld::RootType::collider, .bipedSlot = 0};
+        ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
         std::vector<RE::BSGeometry*> geometries = GetGeometries(rootNode);
         {
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
@@ -868,7 +888,6 @@ namespace MXPBD
     void XPBDWorldSystem::CheckObjectState()
     {
         std::vector<RE::FormID> removeList;
-        std::unordered_map<RE::FormID, bool> cullingList;
         {
             std::lock_guard lg(objectDatasLock);
             removeList.reserve(objectDatas.size());
@@ -912,10 +931,22 @@ namespace MXPBD
 
     void XPBDWorldSystem::onEvent(const Mus::FrameEvent& e)
     {
-        if (Mus::IsGamePaused.load())
+        if (e.gamePaused && !std::atomic_ref(isRaceSexMenuOpen).load())
             return;
-
         CheckObjectState();
+
+        // wind
+        {
+            if (auto p = RE::PlayerCharacter::GetSingleton(); p && p->parentCell && p->parentCell->IsExteriorCell())
+            {
+                if (auto sky = RE::Sky::GetSingleton(); sky)
+                {
+                    physicsWorld->SetWind(sky->windSpeed, sky->windAngle);
+                }
+            }
+            else
+                physicsWorld->SetWind(0.0f, 0.0f);
+        }
 
         const float deltaTime = std::min(RE::GetSecondsSinceLastFrame(), 0.1f);
         physicsWorld->RunPhysicsWorld(deltaTime);
@@ -931,8 +962,7 @@ namespace MXPBD
             if (!object)
                 return;
             ResetIfChanged(object);
-            ObjectData::RawData data = {.rootNode = RE::NiPointer(e.facegenNiNode), .rootType = XPBDWorld::RootType::facegen, .bipedSlot = 0};
-            bool isNeedRemove = false;
+            ObjectData::RawData data = {.rootNode = RE::NiPointer(e.facegenNiNode), .rootType = XPBDWorld::RootType::kFacegen, .bipedSlot = 0};
             {
                 std::unique_lock ul(objectDatasLock);
                 const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(object);
@@ -946,8 +976,10 @@ namespace MXPBD
                     if (it->rootNode != data.rootNode)
                     {
                         *it = data;
-                        isNeedRemove = true;
-                        RemoveRenameMap(objData->renameMap, GetFacegenCloneNodePrefix());
+                        const std::string prefix = GetFacegenCloneNodePrefix();
+                        RemoveRenameMap(objData->renameMap, prefix);
+                        RemoveMergedNode(e.root, prefix);
+                        physicsWorld->RemovePhysics(object->formID, XPBDWorld::RootType::kFacegen, 0);
                     }
                 }
                 else
@@ -955,11 +987,6 @@ namespace MXPBD
                     objData->rawDatas.push_back(data);
                     objData->sortRawDatas();
                 }
-            }
-            if (isNeedRemove)
-            {
-                RemoveMergedNode(e.root, GetFacegenCloneNodePrefix());
-                physicsWorld->RemovePhysics(object, XPBDWorld::RootType::facegen, 0);
             }
 
             PhysicsInput newInput = {};
@@ -975,6 +1002,7 @@ namespace MXPBD
                 ul.unlock();
                 objData->renameMap.insert(renameMap.begin(), renameMap.end());
                 PhysicsConfigReader::GetSingleton().FixBoneName(newInput, objData->renameMap);
+                PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kHair, newInput);
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
                 if (it != objData->rawDatas.end())
                 {
@@ -1000,6 +1028,24 @@ namespace MXPBD
         {
             if (!e.armor)
                 return;
+            std::unique_lock ul(objectDatasLock);
+            const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(e.actor);
+            if (!objData)
+                return;
+            std::lock_guard lg(objData->lock);
+            ul.unlock();
+            {
+                ObjectData::RawData findData = {.rootType = XPBDWorld::RootType::kCloth, .bipedSlot = e.bipedSlot};
+                auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), findData);
+                if (it != objData->rawDatas.end())
+                {
+                    const std::string prefix = GetArmorCloneNodePrefix(e.bipedSlot);
+                    RemoveRenameMap(objData->renameMap, prefix);
+                    RemoveMergedNode(e.skeleton, prefix);
+                    physicsWorld->RemovePhysics(e.actor->formID, XPBDWorld::RootType::kCloth, e.bipedSlot);
+                    objData->rawDatas.erase(it);
+                }
+            }
             PhysicsInput input;
             RenameStringMap renameMap;
             if (std::string physicsPath = GetPhysicsInputPath(e.armor); physicsPath.empty() || !PhysicsConfigReader::GetSingleton().GetPhysicsInput(physicsPath, input))
@@ -1010,15 +1056,10 @@ namespace MXPBD
             if (!IsHDTSMPEnabled)
                 MergeArmorNodeTree(e.skeleton, e.armor, GetArmorCloneNodePrefix(e.bipedSlot), renameMap);
             PhysicsConfigReader::GetSingleton().FixBoneName(input, renameMap);
+            PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kCloth, input);
 
-            std::unique_lock ul(objectDatasLock);
-            const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(e.actor);
-            if (!objData)
-                return;
-            std::lock_guard lg(objData->lock);
-            ul.unlock();
             objData->renameMap.insert(renameMap.begin(), renameMap.end());
-            ObjectData::RawData data = {.rootNode = nullptr, .rootType = XPBDWorld::RootType::cloth, .bipedSlot = e.bipedSlot, .input = input};
+            ObjectData::RawData data = {.rootNode = nullptr, .rootType = XPBDWorld::RootType::kCloth, .bipedSlot = e.bipedSlot, .input = input};
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
             if (it != objData->rawDatas.end())
                 *it = data;
@@ -1038,7 +1079,7 @@ namespace MXPBD
                 return;
             std::lock_guard lg(objData->lock);
             ul.unlock();
-            ObjectData::RawData data = {.rootNode = RE::NiPointer(e.attachedNode), .rootType = XPBDWorld::RootType::cloth, .bipedSlot = e.bipedSlot};
+            ObjectData::RawData data = {.rootNode = RE::NiPointer(e.attachedNode), .rootType = XPBDWorld::RootType::kCloth, .bipedSlot = e.bipedSlot};
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
             if (it != objData->rawDatas.end())
                 it->rootNode = data.rootNode;
@@ -1057,7 +1098,6 @@ namespace MXPBD
         if (!e.actor)
             return;
         ResetIfChanged(e.actor);
-        std::vector<std::uint32_t> bipedSlotsToRemove;
         {
             std::unique_lock ul(objectDatasLock);
             const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(e.actor);
@@ -1067,28 +1107,32 @@ namespace MXPBD
             ul.unlock();
             for (auto it = objData->rawDatas.begin(); it != objData->rawDatas.end();)
             {
-                if (it->rootType != XPBDWorld::RootType::cloth)
+                if (it->rootType != XPBDWorld::RootType::kCloth)
                 {
                     it++;
                     continue;
                 }
                 if (!it->rootNode || !it->rootNode->parent)
                 {
-                    bipedSlotsToRemove.push_back(it->bipedSlot);
+                    logger::debug("{:x} Detected removed slot : {}", e.actor->formID, it->bipedSlot);
+                    const std::string prefix = GetArmorCloneNodePrefix(it->bipedSlot);
+                    RemoveRenameMap(objData->renameMap, prefix);
+                    if (auto rootNode = e.actor->loadedData && e.actor->loadedData->data3D ? e.actor->loadedData->data3D->AsNode() : nullptr; rootNode)
+                        RemoveMergedNode(rootNode, prefix);
+                    physicsWorld->RemovePhysics(e.actor->formID, XPBDWorld::RootType::kCloth, it->bipedSlot);
                     it = objData->rawDatas.erase(it);
-                    RemoveRenameMap(objData->renameMap, GetArmorCloneNodePrefix(it->bipedSlot));
                 }
                 else
                     it++;
             }
-            auto skeletonNode = e.actor->loadedData && e.actor->loadedData->data3D ? e.actor->loadedData->data3D->AsNode() : nullptr;
-            for (const auto& bipedSlot : bipedSlotsToRemove)
-            {
-                if (skeletonNode)
-                    RemoveMergedNode(skeletonNode, GetArmorCloneNodePrefix(bipedSlot));
-                physicsWorld->RemovePhysics(e.actor, XPBDWorld::RootType::cloth, bipedSlot);
-            }
         }
+    }
+
+    void XPBDWorldSystem::onEvent(const Mus::Load3DEvent& e)
+    {
+        if (!e.reference || !e.loadedObject)
+            return;
+        logger::debug("{:x} ({}) loaded", e.reference->formID, e.reference->data.objectReference->GetFormType());
     }
 
     EventResult XPBDWorldSystem::ProcessEvent(const RE::MenuOpenCloseEvent* evn, RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
@@ -1099,11 +1143,11 @@ namespace MXPBD
         {
             if (evn->opening)
             {
-
+                std::atomic_ref(isRaceSexMenuOpen).store(1);
             }
             else
             {
-
+                std::atomic_ref(isRaceSexMenuOpen).store(0);
             }
         }
         return EventResult::kContinue;
