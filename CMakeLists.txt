@@ -11,7 +11,7 @@ else()
 endif()
 project(
         MXPBD
-        VERSION 0.1.1
+        VERSION 0.2.0
         DESCRIPTION "MXPBD(${SIMD_LEVEL}) ${TARGET_DESC}"
         LANGUAGES CXX
 )
