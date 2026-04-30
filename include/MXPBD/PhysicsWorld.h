@@ -50,11 +50,18 @@ namespace MXPBD {
             GROUND_DETECT_QUALITY = (1u << groundDetectQuality);
         }
 
+        inline void SetWindMultiplier(const float newWindMultiplier) {
+            WIND_MULTIPLIER = InverseScale_skyrimUnit * newWindMultiplier;
+        }
         inline void SetWindDetectRange(const float windDetectRange) {
             WIND_DETECT_RANGE = windDetectRange * InverseScale_skyrimUnit;
         }
         inline void SetWindDetectQuality(const std::uint8_t windDetectRangeQuality) {
             WIND_DETECT_QUALITY = (1u << windDetectRangeQuality);
+        }
+        inline void SetWind(const float newWindSpeed, const float newWindAngle) {
+            windSpeed = newWindSpeed;
+            windAngle = newWindAngle;
         }
 
         inline void SetColliderHashTableSize(const std::uint8_t colliderHashTableSize) {
@@ -66,11 +73,6 @@ namespace MXPBD {
         }
         inline void SetCollisionQualityByDistance(const bool collisionQualityByDistanceEnable) {
             COL_QUALITY_BY_LOD = collisionQualityByDistanceEnable;
-        }
-
-        inline void SetWind(const float newWindSpeed, const float newWindAngle) {
-            windSpeed = newWindSpeed * InverseScale_skyrimUnit * 1000.0f;
-            windAngle = newWindAngle;
         }
 
     private:
@@ -87,6 +89,7 @@ namespace MXPBD {
         Vector groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         const Vector groundRayTo = DirectX::XMVectorSet(0.0f, 0.0f, -5.0f, 0.0f);
 
+        float WIND_MULTIPLIER = InverseScale_skyrimUnit * 100.0f;
         float WIND_DETECT_RANGE = 20.0f * InverseScale_skyrimUnit;
         std::uint32_t WIND_DETECT_QUALITY = 1 << 5;
 

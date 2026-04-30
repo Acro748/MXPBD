@@ -33,6 +33,7 @@ namespace Mus {
             if (IsSameString(str2, "config"))
             {
                 Config::GetSingleton().LoadConfig();
+                MXPBD::XPBDWorldSystem::GetSingleton().LoadConfigOnPhysicsWorld();
             }
             else
             {

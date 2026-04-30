@@ -31,6 +31,7 @@ namespace MXPBD
         physicsWorld->SetGroundDetectRange(Mus::Config::GetSingleton().GetGroundDetectRange());
         physicsWorld->SetGroundDetectQuality(Mus::Config::GetSingleton().GetGroundDetectQuality());
 
+        physicsWorld->SetWindMultiplier(Mus::Config::GetSingleton().GetWindMultiplier());
         physicsWorld->SetWindDetectRange(Mus::Config::GetSingleton().GetWindDetectRange());
         physicsWorld->SetWindDetectQuality(Mus::Config::GetSingleton().GetWindDetectQuality());
 

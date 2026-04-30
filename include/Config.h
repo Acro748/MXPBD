@@ -44,6 +44,9 @@ namespace Mus {
         [[nodiscard]] inline auto GetGroundDetectQuality() const noexcept {
             return GroundDetectQuality;
         }
+        [[nodiscard]] inline auto GetWindMultiplier() const noexcept {
+            return WindMultiplier;
+        }
         [[nodiscard]] inline auto GetWindDetectRange() const noexcept {
             return WindDetectRange;
         }
@@ -78,6 +81,7 @@ namespace Mus {
         float GroundDetectRange = 0.15f;
         std::uint8_t GroundDetectQuality = 5;
 
+        float WindMultiplier = 100.0f;
         float WindDetectRange = 20.0f;
         std::uint8_t WindDetectQuality = 5;
 

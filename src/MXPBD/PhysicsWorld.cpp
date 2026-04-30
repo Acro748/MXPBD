@@ -1515,7 +1515,7 @@ namespace MXPBD
 
             const AABB& worldAABB = objectDatas.boundingAABB[oi];
             const Vector worldCenter = worldAABB.GetCenter();
-            const Vector extents = worldAABB.GetExtents();
+            const Vector extents = worldAABB.GetExtents(0.75f);
 
             const float rx = rand_PCG32_Float(objectDatas.randState[oi]);
             const float ry = rand_PCG32_Float(objectDatas.randState[oi]);
@@ -1569,9 +1569,9 @@ namespace MXPBD
         TIMELOG_START;
         const Vector dt = DirectX::XMVectorReplicate(deltaTime);
         const float flutterNoise = 1.0f + 0.5f * sin(currentFrame * 0.1f);
-        const float currentWindSpeed = windSpeed * flutterNoise;
-        const float windX = sin(windAngle) * windSpeed;
-        const float windY = std::cos(windAngle) * windSpeed;
+        const float windX = sin(windAngle) * windSpeed * WIND_MULTIPLIER;
+        const float windY = std::cos(windAngle) * windSpeed * WIND_MULTIPLIER;
+        const float windZFlutter = windSpeed * flutterNoise * WIND_MULTIPLIER;
         const float windTimeFreq = currentFrame * 0.05f;
         tbb::parallel_for(
             tbb::blocked_range<std::uint32_t>(0, physicsBones.numBones, 128),
@@ -1595,7 +1595,7 @@ namespace MXPBD
                     if (FloatPrecision < objectDatas.windMultiplier[oi])
                     {
                         const float posNoise = sin(windTimeFreq + (DirectX::XMVectorGetX(physicsBones.pos[bi]) * 0.02f));
-                        const float windZ = currentWindSpeed * (0.3f + posNoise * 0.4f);
+                        const float windZ = windZFlutter * (0.3f + posNoise * 0.4f);
                         const float scaledWind = objectDatas.windMultiplier[oi] * physicsBones.windFactor[bi] * physicsBones.invMass[bi];
                         const Vector windForce = DirectX::XMVectorScale(DirectX::XMVectorSet(windX, windY, windZ, 0.0f), scaledWind * deltaTime);
                         physicsBones.vel[bi] = DirectX::XMVectorAdd(physicsBones.vel[bi], windForce);

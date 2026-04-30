@@ -135,6 +135,10 @@ namespace Mus {
                 {
                     GroundDetectQuality = GetUIntValue(variableValue);
                 }
+                else if (variableName == "WindMultiplier")
+                {
+                    WindMultiplier = GetFloatValue(variableValue);
+                }
                 else if (variableName == "WindDetectRange")
                 {
                     WindDetectRange = GetFloatValue(variableValue);
