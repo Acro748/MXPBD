@@ -107,7 +107,11 @@ namespace Mus {
             }
             else if (currentSetting == "[General]")
             {
-                if (variableName == "IterationMax")
+                if (variableName == "SubtractThreadCount")
+                {
+                    SubtractThreadCount = GetIntValue(variableValue);
+                }
+                else if (variableName == "IterationMax")
                 {
                     IterationMax = std::max(1u, GetUIntValue(variableValue));
                 }
@@ -162,6 +166,14 @@ namespace Mus {
                 else if (variableName == "ColliderHashTableSize")
                 {
                     ColliderHashTableSize = GetUIntValue(variableValue);
+                }
+                else if (variableName == "MorphDetectQuality")
+                {
+                    MorphDetectQuality = GetUIntValue(variableValue);
+                }
+                else if (variableName == "VolumeMultiplier")
+                {
+                    VolumeMultiplier = GetFloatValue(variableValue);
                 }
 			}
         }

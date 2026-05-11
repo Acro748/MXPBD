@@ -1,6 +1,13 @@
 #pragma once
 
 namespace MXPBD {
+    enum ColliderType : std::uint8_t {
+        kConvexHull,
+        kSphere,
+        kNone
+    };
+    ColliderType GetColliderType(const Mus::lString& str);
+
     struct PointCloud {
         std::vector<RE::NiPoint3> vertices;
         std::string boneName;
@@ -12,7 +19,8 @@ namespace MXPBD {
         std::string boneName;
     };
     struct RawConvexHullData {
-        RE::BSGeometry* geometry; // use ptr compare only, do not access
+        RE::BSGeometry* geometry = nullptr; // use ptr compare only, do not access
+        std::uint64_t hash = 0;
         std::vector<RawConvexHull> rawConvexHulls;
         NearBones nearBones;
     };
@@ -30,9 +38,17 @@ namespace MXPBD {
         std::uint8_t faceCount = 0;
     };
 
+    struct alignas(32) SphereData {
+        float cX[COL_SPHERE_MAX], cY[COL_SPHERE_MAX], cZ[COL_SPHERE_MAX];
+        float radius[COL_SPHERE_MAX];
+        std::uint8_t sphereCount = 0;
+    };
+
     void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawConvexHull& a_rawConvexHull);
     void UpdateRawConvexHull(const PointCloud& a_orgPointCloud, const PointCloud& a_curentPointCloud, RawConvexHull& a_rawConvexHull);
     void GenerateConvexHullBatch(const RawConvexHull& a_rawConvexHull, ConvexHullDataBatch& a_convexHullDataBatch);
+
+    float GetVolume(const RawConvexHull& a_convexHull);
 
     struct BoneVertexData {
         std::unordered_map<std::string, std::vector<RE::NiPoint3>> boneVertexData;
@@ -47,6 +63,7 @@ namespace MXPBD {
     BoneVertexData GetGeometryData(const std::vector<RE::BSGeometry*>& geometries);
     BoneVertexData GetGeometryData(RE::BSGeometry* geometry);
     std::vector<RE::BSGeometry*> GetGeometries(RE::NiNode* root);
+    std::uint64_t GetGeometryHash(RE::BSGeometry* a_geometry);
 
     void writeWaveformOBJ(const std::string& filename, const std::string& objectName, const std::vector<RE::NiPoint3>& vertices, const std::vector<std::uint32_t>& indices);
     void writeWaveformOBJ(const std::string& filename, const std::string& objectName, const std::vector<RE::NiPoint3>& vertices, const std::vector<std::size_t>& indices);

@@ -3,9 +3,9 @@
 namespace MXPBD {
     class XPBDWorld {
     public:
-        XPBDWorld();
+        void SetThreads(std::int32_t subtractThreadCount);
 
-        enum RootType {
+        enum RootType : std::uint8_t {
             kNone,
             kSkeleton,
             kFacegen,
@@ -17,49 +17,61 @@ namespace MXPBD {
         };
 
         void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const RootType rootType, const PhysicsInput& input);
-        void UpdatePhysicsSetting(RE::TESObjectREFR* object, const PhysicsInput& input, bool reset = true);
+        void UpdatePhysicsSetting(RE::TESObjectREFR* object, const PhysicsInput& input, bool reset = false);
         void ResetAll();
         void Reset(RE::TESObjectREFR* object);
         void RemovePhysics(const RE::FormID objectID);
         void RemovePhysics(const RE::FormID objectID, const RootType rootType, const std::uint32_t bipedSlot);
         void TogglePhysics(const RE::FormID objectID, bool disable);
         void RunPhysicsWorld(const float deltaTime);
+        void RunPhysicsWorldAsync(const float deltaTime);
+        void WaitForPhysicsWorldAsync();
 
         inline void SetIteration(const std::uint32_t iteration) {
+            WaitForPhysicsWorldAsync();
             ITERATION_MAX = iteration;
         }
 
         inline void SetGridSize(const float smallGridSize, const float largeGridSize) {
+            WaitForPhysicsWorldAsync();
             SMALL_GRID_SIZE = smallGridSize;
             LARGE_GRID_SIZE = largeGridSize;
         }
 
         inline void SetRotationClampSpeed(const float rotationClampSpeed) {
+            WaitForPhysicsWorldAsync();
             ROTATION_CLAMP = ROTATION_CLAMP_DEFAULT * rotationClampSpeed;
         }
 
         inline void SetCollisionConvergence(const float collisionConvergence) {
+            WaitForPhysicsWorldAsync();
             COL_CONVERGENCE = collisionConvergence;
         }
 
         inline void SetGroundDetectRange(const float groundDetectRange) {
-            GROUND_DETECT_RANGE = groundDetectRange * InverseScale_skyrimUnit;
+            WaitForPhysicsWorldAsync();
+            GROUND_DETECT_RANGE = groundDetectRange * SkyrimWorldScaleInverse;
             groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         }
         inline void SetGroundDetectQuality(const std::uint8_t groundDetectQuality) {
+            WaitForPhysicsWorldAsync();
             GROUND_DETECT_QUALITY = (1u << groundDetectQuality);
         }
 
         inline void SetWindMultiplier(const float newWindMultiplier) {
-            WIND_MULTIPLIER = InverseScale_skyrimUnit * newWindMultiplier;
+            WaitForPhysicsWorldAsync();
+            WIND_MULTIPLIER = SkyrimWorldScaleInverse * newWindMultiplier;
         }
         inline void SetWindDetectRange(const float windDetectRange) {
-            WIND_DETECT_RANGE = windDetectRange * InverseScale_skyrimUnit;
+            WaitForPhysicsWorldAsync();
+            WIND_DETECT_RANGE = windDetectRange * SkyrimWorldScaleInverse;
         }
         inline void SetWindDetectQuality(const std::uint8_t windDetectRangeQuality) {
+            WaitForPhysicsWorldAsync();
             WIND_DETECT_QUALITY = (1u << windDetectRangeQuality);
         }
         inline void SetWind(const float newWindSpeed, const float newWindAngle) {
+            WaitForPhysicsWorldAsync();
             windSpeed = newWindSpeed;
             windAngle = newWindAngle;
         }
@@ -68,13 +80,12 @@ namespace MXPBD {
             COL_HASH_TABLE_SIZE = (1u << colliderHashTableSize);
         }
         inline void SetCullingDistance(const float cullingDistance) {
-            CULLING_DISTANCE_SQ = (cullingDistance * InverseScale_skyrimUnit) * (cullingDistance * InverseScale_skyrimUnit);
+            CULLING_DISTANCE_SQ = (cullingDistance * SkyrimWorldScaleInverse) * (cullingDistance * SkyrimWorldScaleInverse);
             INV_CULLING_DISTANCE_SQ = reciprocal(CULLING_DISTANCE_SQ);
         }
         inline void SetCollisionQualityByDistance(const bool collisionQualityByDistanceEnable) {
             COL_QUALITY_BY_LOD = collisionQualityByDistanceEnable;
         }
-
     private:
         mutable std::mutex lock;
 
@@ -84,27 +95,32 @@ namespace MXPBD {
         float ROTATION_CLAMP = 0.2f;
         float COL_CONVERGENCE = 0.25f;
 
-        float GROUND_DETECT_RANGE = 0.15f * InverseScale_skyrimUnit;
+        float GROUND_DETECT_RANGE = 0.15f * SkyrimWorldScaleInverse;
         std::uint32_t GROUND_DETECT_QUALITY = 1 << 5;
         Vector groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         const Vector groundRayTo = DirectX::XMVectorSet(0.0f, 0.0f, -5.0f, 0.0f);
 
-        float WIND_MULTIPLIER = InverseScale_skyrimUnit * 100.0f;
-        float WIND_DETECT_RANGE = 20.0f * InverseScale_skyrimUnit;
+        float WIND_MULTIPLIER = SkyrimWorldScaleInverse * 100.0f;
+        float WIND_DETECT_RANGE = 20.0f * SkyrimWorldScaleInverse;
         std::uint32_t WIND_DETECT_QUALITY = 1 << 5;
 
-        float CULLING_DISTANCE_SQ = (100.0f * InverseScale_skyrimUnit) * (100.0f * InverseScale_skyrimUnit);
+        float CULLING_DISTANCE_SQ = (100.0f * SkyrimWorldScaleInverse) * (100.0f * SkyrimWorldScaleInverse);
         float INV_CULLING_DISTANCE_SQ = reciprocal(CULLING_DISTANCE_SQ);
         bool COL_QUALITY_BY_LOD = true;
         std::uint32_t COL_HASH_TABLE_SIZE = 1 << 10;
 
+        bool isTaskLoading = false;
         bool orderDirty = false;
         bool isNeedColorGraphUpdate = false;
+        bool isResetBones = false;
 
         std::uint64_t currentFrame = 0;
         std::unique_ptr<TBB_ThreadPool> threadPool;
+        std::unique_ptr<TBB_ThreadPool> threadPoolAsync;
+        tbb::task_group backGroundTask;
         float objectAccelerationTime = 0.0f;
         float timeAccumulator = 0.0f;
+        std::uint32_t preCalcStepCount = 0;
 
         float windSpeed = 0.0f;
         float windAngle = 0.0f;
@@ -140,7 +156,8 @@ namespace MXPBD {
             std::vector<Vector> prevWorldPos;
             std::vector<Quaternion> prevNPCWorldRot;
             std::vector<Quaternion> targetNPCWorldRot;
-            std::vector<RE::NiNode*> npcNode;
+            std::vector<Vector> deltaWorldPos;
+            std::vector<Quaternion> deltaWorldRot;
             std::vector<RE::bhkWorld*> bhkWorld;
             std::vector<Vector> velocity;
             std::vector<Vector> acceleration;
@@ -160,8 +177,8 @@ namespace MXPBD {
             // 3 DOF
             std::vector<Vector> pos;                // world
             std::vector<Vector> prevPos;                // world
-            std::vector<Vector> pred; // world
-            std::vector<Vector> vel;
+            std::vector<Vector> predPos; // world
+            std::vector<Vector> posVel;
 
             // 6 DOF
             std::vector<std::uint8_t> advancedRotation;
@@ -170,51 +187,70 @@ namespace MXPBD {
             std::vector<Quaternion> predRot;
             std::vector<Quaternion> backupRot;
             std::vector<Vector> angVel;
-            std::vector<float> invInertia;
 
             // setting
-            std::vector<float> damping;
-            std::vector<float> inertiaScale;
-            std::vector<float> restitution;
-            std::vector<float> rotationBlendFactor; // only for 3 DOF
+            std::vector<Vector> dampingPositive;
+            std::vector<Vector> dampingNegative;
+            std::vector<Vector> angularDampingPositive;
+            std::vector<Vector> angularDampingNegative;
+            std::vector<Vector> limitPositive;
+            std::vector<Vector> limitNegative;
+            std::vector<Vector> angularLimitPositive;
+            std::vector<Vector> angularLimitNegative;
+            std::vector<Vector> inertiaPositive;
+            std::vector<Vector> inertiaNegative;
+            std::vector<Vector> invAngularInertiaPositive;
+            std::vector<Vector> invAngularInertiaNegative;
+            std::vector<Vector> inertiaCorrectionPositive;
+            std::vector<Vector> inertiaCorrectionNegative;
+            std::vector<float> angularBlendFactor;
             std::vector<Vector> gravity;
             std::vector<Vector> offset;
             std::vector<float> invMass;
-            std::vector<float> windFactor;
+            std::vector<Vector> windFactor;
+            std::vector<float> physicsScale;
 
-            // restPose
-            std::vector<float> restPoseLimit;
-            std::vector<float> restPoseCompliance;
-            std::vector<float> restPoseLambda;
-            std::vector<float> restPoseAngularLimit;
-            std::vector<float> restPoseAngularCompliance;
-            std::vector<float> restPoseAngularLambda;
+            // deformation
+            std::vector<Vector> deformMax;
+            std::vector<Vector> deformMin;
+            std::vector<Vector> deformVolumePreservation;
+            std::vector<Vector> deformSquishSensitivity;
+            std::vector<Vector> deformStretchSensitivity;
+            std::vector<Vector> deformBulgeSensitivity;
+            std::vector<Vector> deformSquishStiffness;
+            std::vector<Vector> deformStretchStiffness;
+            std::vector<Vector> deformSquishDamping;
+            std::vector<Vector> deformStretchDamping;
+
+            std::vector<Matrix> deformScale;
+            std::vector<Matrix> deformScaleCache;
+            std::vector<Matrix> deformVelocityScale;
+            std::vector<std::uint32_t> deformCount;
+
+            // animDrive
+            std::vector<Vector> animDriveCompliance;
+            std::vector<float> animDriveLambda;
+            std::vector<Vector> animDriveAngularCompliance;
+            std::vector<float> animDriveAngularLambda;
 
             // fake rotation / only for 6 DOF
-            std::vector<DirectX::XMMATRIX> linearRotTorque;
+            std::vector<Matrix> linearRotTorque;
 
             // collision
             std::vector<float> collisionMargin;
             std::vector<float> collisionShrink;
             std::vector<float> collisionFriction;
-            std::vector<float> collisionRotationBias;
             std::vector<float> collisionCompliance;
+            std::vector<float> collisionRestitution;
             std::vector<std::uint32_t> layerGroup;
             std::vector<std::uint32_t> collideLayer;
 
-            struct CollisionCache {
-                Vector n = vZero;
-                Vector p = vZero;
-                float totalDepth = 0.0f;
-                float maxDepth = 0.0f;
-            };
-            std::vector<CollisionCache> collisionCache;
-
-            struct FrictionCache {
-                Vector n = vZero;
+            struct CollideCache {
+                Vector normal = vZero;
                 float depth = 0.0f;
             };
-            std::vector<FrictionCache> frictionCache;
+            std::vector<CollideCache> collideCache;
+            std::vector<CollideCache> deformCache;
 
             // info
             std::vector<RE::NiPointer<RE::NiAVObject>> node;
@@ -250,19 +286,16 @@ namespace MXPBD {
 
             std::vector<std::uint8_t> numAnchors;       // 0-3
             struct alignas(16) AnchorData {
-                Vector restDirLocal = vZero;
-
                 std::uint32_t anchIdx = UINT32_MAX;
-                float restLen = 0.0f;       
+                float restLen = 0.0f;
                 float complianceSquish = 0.0f;
                 float complianceStretch = 0.0f;
 
-                float squishLimit = 0.0f;
-                float stretchLimit = 0.0f;
-                float angularLimit = 0.0f;
+                float squishMargin = 0.0f;
+                float stretchMargin = 0.0f;
                 float squishDamping = 0.0f;
-
                 float stretchDamping = 0.0f;
+
                 float lambda = 0.0f;
             };
             std::vector<AnchorData> anchData;         // padding by ANCHOR_MAX
@@ -281,12 +314,18 @@ namespace MXPBD {
 
             std::vector<std::uint8_t> numAnchors;       // 0-3
             struct alignas(16) AnchorData {
+                std::uint32_t anchIdx = UINT32_MAX;
+
                 Quaternion restRot = vZero;
 
-                std::uint32_t anchIdx = UINT32_MAX;
-                float compliance = 0.0f;
-                float limit = 0.0f;
-                float damping = 0.0f;
+                Vector compliancePositive = vZero;
+                Vector complianceNegative = vZero;
+
+                Vector marginPositive = vZero;
+                Vector marginNegative = vZero;
+
+                Vector dampingPositive = vZero;
+                Vector dampingNegative = vZero;
 
                 float lambda = 0.0f;
             };
@@ -297,11 +336,32 @@ namespace MXPBD {
         std::vector<std::uint32_t> angularConstraintsGroup;
         std::vector<std::uint32_t> angularConstraintsColorGroup;
 
+        struct DeformConstraints {
+            std::uint32_t numConstraints = 0;
+            std::vector<std::uint32_t> boneIdx; // PhysicsBone
+            std::vector<std::uint32_t> objIdx;
+            std::vector<std::uint32_t> rootIdx;
+            std::vector<std::uint8_t> numAnchors; // 0-3
+            struct alignas(16) AnchorData {
+                std::uint32_t anchIdx = UINT32_MAX;
+                float restLen = 0.0f;
+                Quaternion restRot = vZero;
+
+                Vector squishWeight = vOne;
+                Vector stretchWeight = vOne;
+                Vector bulgeWeight = vOne;
+            };
+            std::vector<AnchorData> anchData; // padding by ANCHOR_MAX
+        };
+        DeformConstraints deformConstraints;
+        std::vector<std::uint32_t> deformConstraintsOrder;
+        std::vector<std::uint32_t> deformConstraintsGroup;
+
         struct ContactManifold {
-            DirectX::XMVECTOR normal = vZero;
+            Vector normal = vZero;
             struct ContactPoint {
-                DirectX::XMVECTOR localPointA = vZero;
-                DirectX::XMVECTOR localPointB = vZero;
+                Vector localPointA = vZero;
+                Vector localPointB = vZero;
                 float depth = 0.0f;
             };
             ContactPoint points[4];
@@ -316,12 +376,13 @@ namespace MXPBD {
             std::vector<std::uint8_t> noCollideCount;    // Same as numColliders
             std::vector<std::uint32_t> noCollideBoneIdx; // padding by NOCOLLIDE_MAX
 
-            // convexHull
-            std::vector<ConvexHullDataBatch> convexHullData;
             std::vector<AABB> boundingAABB;
-
             std::vector<float> boundingSphere;
             std::vector<Vector> boundingSphereCenter;
+
+            std::vector<std::uint8_t> colliderType;
+            std::vector<ConvexHullDataBatch> convexHullData;
+            std::vector<SphereData> sphereData;
         };
         Colliders colliders;
         std::vector<std::uint32_t> collidersOrder;
@@ -329,12 +390,15 @@ namespace MXPBD {
         std::vector<std::uint32_t> collidersRoots;
         std::vector<std::uint32_t> collidersGroup;
 
+        using CacheKey = std::uint64_t;
+        inline CacheKey GetCacheKey(std::uint32_t a, std::uint32_t b) const {
+            return (static_cast<std::uint64_t>(std::min(a, b)) << 32) | std::max(a, b);
+        }
         struct ConvexHullCache {
             Vector axis = vZero;
             std::uint64_t lastFrame = 0;
             ContactManifold persistentManifold;
         };
-        using CacheKey = std::uint64_t;
         tbb::concurrent_unordered_map<CacheKey, ConvexHullCache> convexHullCache;
         std::uint32_t collideMaxObserved = 0;
         std::uint32_t expectedCollisionCount = 0;
@@ -354,9 +418,6 @@ namespace MXPBD {
             bool isCast = false;
         };
         std::vector<GroundCache> groundCache;
-        inline CacheKey GetCacheKey(std::uint32_t a, std::uint32_t b) const {
-            return (static_cast<std::uint64_t>(std::min(a, b)) << 32) | std::max(a, b);
-        }
 
         struct LocalSpatialHash {
             float invGridSize = 0.1f;
@@ -368,7 +429,7 @@ namespace MXPBD {
             std::vector<std::uint32_t> entries;
 
             inline void Init(const std::uint32_t totalColliders, const float newGridSize, const std::uint32_t newHashTableSize) {
-                invGridSize = 1.0f / newGridSize;
+                invGridSize = reciprocal(newGridSize);
                 vInvGridSize = DirectX::XMVectorReplicate(invGridSize);
                 hashTableSize = newHashTableSize;
                 cell.resize(hashTableSize + 1, 0);
@@ -403,26 +464,30 @@ namespace MXPBD {
         std::vector<std::uint32_t> objIdxToTreeNodeIdx;
 
         void UpdateObjectData(const float deltaTime);
-        void ClampObjectRotation();
-        void PrefetchBoneDatas(const float alpha, const bool isFirstStep);
+        void ClampObjectRotation(const float stepCount);
+        void PrefetchBoneDatas();
+        void InterpolateBoneDatas(const float alpha, const float nextAlpha);
         void UpdateGlobalAABBTree();
         void ObjectCulling();
         void UpdateWindStrength();
         void PredictBones(const float deltaTime);
         void CreateLocalSpatialHash();
         void GenerateCollisionManifolds();
-        void GenerateGroundCache();
+        void GenerateGroundCache(const float stepCount);
         void SolveCachedCollisions(const float deltaTime);
         void SolveCachedGroundCollisions(const float deltaTime);
         void SolveConstraints(const float deltaTime, const bool initLambda);
-        void SolveRestPoseConstraints(const float deltaTime, const bool initLambda);
+        void SolveAnimDrive(const float deltaTime, const bool initLambda);
+        void SolveDeformConstraint(const float deltaTime);
         void UpdateBoneVelocity(const float deltaTime);
-        void ApplyToSkyrim();
+        void ApplyToSkyrim(const bool syncFrame);
 
         AABB GetObjectAABB(const std::uint32_t objIdx) const;
         std::vector<AABBPair> GetAABBPairs(const std::uint32_t objIdx);
 
-        bool ConvexHullvsConvexHull(const std::uint32_t ciA, const std::uint32_t ciB, ContactManifold& outManifold);
+        bool ConvexHullvsConvexHull(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
+        bool ConvexHullvsSphere(const std::uint32_t coiHull, const std::uint32_t coiSphere, ContactManifold& outManifold);
+        bool SpherevsSphere(const std::uint32_t coiA, const std::uint32_t coiB, ContactManifold& outManifold);
 
         std::uint32_t AllocateObject(RE::TESObjectREFR* object);
         std::uint32_t AllocateRoot(const std::uint32_t objIdx, const ObjectDatas::Root& rootData);
@@ -433,12 +498,15 @@ namespace MXPBD {
         void ReserveConstraint(std::uint32_t n);
         std::uint32_t AllocateAngularConstraint();
         void ReserveAngularConstraint(std::uint32_t n);
+        std::uint32_t AllocateDeformConstraint();
+        void ReserveDeformConstraint(std::uint32_t n);
         std::uint32_t AllocateCollider();
         void ReserveCollider(std::uint32_t n);
 
         void BuildConstraintColorGraph();
 
         void ResetBone(const std::uint32_t bi);
+        void ResetParticleBone(const std::uint32_t bi);
         void Reset(const RE::FormID objectID);
         void RemoveCollider(RE::TESObjectREFR* object, const ObjectDatas::Root& targetRoot);
         void RemovePhysics(const RemoveDataList& cleanList);
@@ -457,6 +525,42 @@ namespace MXPBD {
         };
         inline bool IsCollideGround(const std::uint32_t ownCollideLayerBoneIdx) const {
             return (CollisionLayer::kGround & physicsBones.collideLayer[ownCollideLayerBoneIdx]) != 0;
+        };
+
+        inline RE::NiNode* GetNPCNodeByObjectIndex(const std::uint32_t objIdx) const {
+            return GetNPCNode(GetREFR(objectDatas.objectID[objIdx]));
+        }
+
+        void SetBone(const std::uint32_t bi, const PhysicsInput::Bone& bone);
+        void SetConstraint(const std::uint32_t ai, const PhysicsInput::Constraint::AnchorData& anchData, const float physicsScale);
+        void SetAngularConstraint(const std::uint32_t ai, const PhysicsInput::AngularConstraint::AnchorData& anchData, const float physicsScale);
+        void SetDeformConstraint(const std::uint32_t ai, const PhysicsInput::DeformConstraint::AnchorData& anchData, const float physicsScale);
+
+        class TimeProfiler {
+        public:
+            TimeProfiler() = delete;
+            TimeProfiler(const std::string& a_funcName) : funcName(a_funcName) {};
+            void Start() {
+                timeStart = std::chrono::high_resolution_clock::now();
+            }
+            void End(const XPBDWorld* world) {
+                const auto timeEnd = std::chrono::high_resolution_clock::now();
+                nsSum += std::chrono::duration_cast<std::chrono::nanoseconds>(timeEnd - timeStart).count();
+                timeCount++;
+                if (timeCount >= 1000) {
+                    const auto ms = (nsSum * 0.001f) * ns2ms;
+                    logger::debug("{} time: {:.3f}ms ({} bones / {} constrants / {} angularConstrants / {} deformConstraints / {} colliders)", funcName, ms,
+                                  world->physicsBones.numBones, world->constraints.numConstraints, world->angularConstraints.numConstraints, world->deformConstraints.numConstraints, world->colliders.numColliders);
+                    nsSum = 0;
+                    timeCount = 0;
+                }
+            }
+
+        private:
+            std::string funcName = "";
+            double nsSum = 0.0;
+            std::uint32_t timeCount = 0;
+            std::chrono::steady_clock::time_point timeStart;
         };
     };
 } // namespace MXPBD

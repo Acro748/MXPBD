@@ -15,11 +15,16 @@ namespace MXPBD
         Mus::g_load3DEventDispatcher.addListener(this);
 
         if (auto ui = RE::UI::GetSingleton(); ui)
-            ui->AddEventSink(this);
+            ui->AddEventSink<RE::MenuOpenCloseEvent>(this);
     }
 
-    void MXPBD::XPBDWorldSystem::LoadConfigOnPhysicsWorld() const
+    void XPBDWorldSystem::LoadConfigOnPhysicsWorld()
     {
+        morphDetectQuality = 1 << Mus::Config::GetSingleton().GetMorphDetectQuality();
+
+        isAsyncPhysics = Mus::Config::GetSingleton().GetSubtractThreadCount() >= 0;
+        physicsWorld->SetThreads(Mus::Config::GetSingleton().GetSubtractThreadCount());
+
         physicsWorld->SetIteration(Mus::Config::GetSingleton().GetIterationMax());
 
         physicsWorld->SetGridSize(Mus::Config::GetSingleton().GetSmallGridSize(), Mus::Config::GetSingleton().GetLargeGridSize());
@@ -44,7 +49,8 @@ namespace MXPBD
     {
         if (!object)
             return;
-        UpdateRawConvexHulls(object, nullptr);
+        if (UpdateRawConvexHulls(object, nullptr))
+            UpdatePhysicsSetting(object, false);
         if (rootType == XPBDWorld::RootType::kSkeleton)
         {
             AddSkeletonPhysics(object, rootNode);
@@ -73,7 +79,6 @@ namespace MXPBD
         auto rootNode = object->loadedData->data3D->AsNode();
         if (!rootNode)
             return;
-        physicsWorld->Reset(object);
         std::vector<RawConvexHullData> rawConvexHullDatas;
         {
             ObjectData::RawData targetCollider = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
@@ -700,9 +705,9 @@ namespace MXPBD
             ul.unlock();
             for (const auto& rawData : objData->rawDatas)
             {
-                for (const auto& noColBones : rawData.input.convexHullColliders.noCollideBones)
+                for (const auto& noColBones : rawData.input.colliders.noCollideBones)
                 {
-                    newInput.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
+                    newInput.colliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
                 }
             }
             const ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
@@ -714,18 +719,21 @@ namespace MXPBD
             {
                 for (const auto& rawConvexHull : rawConvexHullData.rawConvexHulls)
                 {
+                    pointClouds[rawConvexHull.boneName].boneName = rawConvexHull.boneName;
                     pointClouds[rawConvexHull.boneName].vertices.append_range(rawConvexHull.vertices);
                 }
                 for (const auto& nearBone : rawConvexHullData.nearBones)
                 {
-                    newInput.convexHullColliders.noCollideBones[nearBone.first].insert(nearBone.second.begin(), nearBone.second.end());
+                    newInput.colliders.noCollideBones[nearBone.first].insert(nearBone.second.begin(), nearBone.second.end());
                 }
             }
             for (auto& pc : pointClouds)
             {
                 RawConvexHull mergedRawConvexHull;
                 GenerateRawConvexHull(pc.second, mergedRawConvexHull);
-                GenerateConvexHullBatch(mergedRawConvexHull, newInput.convexHullColliders.colliders[pc.first]);
+                PhysicsInput::Colliders::Collider newCollider = {.boneName = pc.second.boneName};
+                GenerateConvexHullBatch(mergedRawConvexHull, newCollider.convexHullData);
+                newInput.colliders.datas.push_back(std::move(newCollider));
             }
             it->input = newInput;
         }
@@ -776,14 +784,7 @@ namespace MXPBD
                     }
                     else
                     {
-                        rawData.input.infos.append_range(newInput.infos);
-                        rawData.input.bones.insert_range(newInput.bones);
-                        rawData.input.constraints.insert_range(newInput.constraints);
-                        rawData.input.angularConstraints.insert_range(newInput.angularConstraints);
-                        for (const auto& noColBones : newInput.convexHullColliders.noCollideBones)
-                        {
-                            rawData.input.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
-                        }
+                        rawData.input.merge(newInput);
                     }
                     PhysicsConfigReader::GetSingleton().FixBoneName(rawData.input, objData->renameMap);
                 }
@@ -798,6 +799,62 @@ namespace MXPBD
         }
     }
 
+    void XPBDWorldSystem::UpdatePhysicsSetting(RE::TESObjectREFR* object, bool isAddCollider)
+    {
+        if (!object || !object->loadedData || !object->loadedData->data3D)
+            return;
+        auto rootNode = object->loadedData->data3D->AsNode();
+        if (!rootNode)
+            return;
+
+        std::vector<RawConvexHull> mergedRawConvexHulls;
+        PhysicsInput newInput;
+        {
+            std::unique_lock ul(objectDatasLock);
+            const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(object);
+            if (!objData)
+                return;
+            std::lock_guard lg(objData->lock);
+            ul.unlock();
+            for (const auto& rawData : objData->rawDatas)
+            {
+                newInput.merge(rawData.input);
+            }
+            const ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
+            auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
+            if (it == objData->rawDatas.end())
+                return;
+            std::unordered_map<std::string, PointCloud> pointClouds;
+            for (const auto& rawConvexHullData : it->rawConvexHullDatas)
+            {
+                for (const auto& rawConvexHull : rawConvexHullData.rawConvexHulls)
+                {
+                    pointClouds[rawConvexHull.boneName].boneName = rawConvexHull.boneName;
+                    pointClouds[rawConvexHull.boneName].vertices.append_range(rawConvexHull.vertices);
+                }
+                for (const auto& nearBone : rawConvexHullData.nearBones)
+                {
+                    newInput.colliders.noCollideBones[nearBone.first].insert(nearBone.second.begin(), nearBone.second.end());
+                }
+            }
+            for (auto& pc : pointClouds)
+            {
+                RawConvexHull mergedRawConvexHull;
+                GenerateRawConvexHull(pc.second, mergedRawConvexHull);
+                PhysicsInput::Colliders::Collider newCollider = {.boneName = pc.second.boneName};
+                GenerateConvexHullBatch(mergedRawConvexHull, newCollider.convexHullData);
+                newInput.colliders.datas.push_back(std::move(newCollider));
+                mergedRawConvexHulls.push_back(std::move(mergedRawConvexHull));
+            }
+            it->input = newInput;
+        }
+
+        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, mergedRawConvexHulls);
+        physicsWorld->UpdatePhysicsSetting(object, newInput);
+        if (isAddCollider)
+            physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kCollider, newInput);
+    }
+
     void XPBDWorldSystem::TogglePhysics(RE::TESObjectREFR* object, bool isDisable)
     {
         if (!object)
@@ -805,23 +862,23 @@ namespace MXPBD
         physicsWorld->TogglePhysics(object->formID, isDisable);
     }
 
-    void XPBDWorldSystem::UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode)
+    bool XPBDWorldSystem::UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode)
     {
         if (!object)
-            return;
+            return false;
         if (!rootNode)
         {
             if (!object->loadedData || !object->loadedData->data3D)
-                return;
+                return false;
             rootNode = object->loadedData->data3D->AsNode();
             if (!rootNode)
-                return;
+                return false;
         }
 
         std::unique_lock ul(objectDatasLock);
         const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(object);
         if (!objData)
-            return;
+            return false;
         std::lock_guard lg(objData->lock);
         ul.unlock();
 
@@ -836,8 +893,16 @@ namespace MXPBD
                     auto geoIt = std::find(geometries.begin(), geometries.end(), rawIt->geometry);
                     if (geoIt != geometries.end())
                     {
-                        geometries.erase(geoIt);
-                        rawIt++;
+                        const std::uint64_t hash = GetGeometryHash(*geoIt);
+                        if (rawIt->hash == hash)
+                        {
+                            geometries.erase(geoIt);
+                            rawIt++;
+                        }
+                        else
+                        {
+                            rawIt = it->rawConvexHullDatas.erase(rawIt);
+                        }
                     }
                     else
                     {
@@ -847,13 +912,15 @@ namespace MXPBD
             }
         }
         if (geometries.empty())
-            return;
+            return false;
+
         std::vector<RawConvexHullData> newRawConvexHullDatas;
         newRawConvexHullDatas.reserve(geometries.size());
         for (auto& geo : geometries)
         {
             RawConvexHullData newRawConvexHullData;
             newRawConvexHullData.geometry = geo;
+            newRawConvexHullData.hash = GetGeometryHash(geo);
 
             BoneVertexData boneVertData = GetGeometryData(geo);
             newRawConvexHullData.nearBones = boneVertData.nearBones;
@@ -884,6 +951,7 @@ namespace MXPBD
             objData->rawDatas.push_back(target);
             objData->sortRawDatas();
         }
+        return true;
     }
 
     void XPBDWorldSystem::CheckObjectState()
@@ -930,27 +998,84 @@ namespace MXPBD
         return extraData->value ? extraData->value : "";
     }
 
+    void XPBDWorldSystem::DetectMorphChanges()
+    {
+        static std::uint32_t currentFrame = 0;
+        currentFrame++;
+        if (currentFrame < morphDetectQuality)
+            return;
+        currentFrame = 0;
+
+        RE::FormID targetObjectID = 0;
+        {
+            static RE::FormID nextObjectID = 0;
+            std::unique_lock ul(objectDatasLock);
+            if (objectDatas.empty())
+                return;
+            auto it = objectDatas.find(nextObjectID);
+            if (it == objectDatas.end())
+                it = objectDatas.begin();
+            targetObjectID = it->first;
+            ++it;
+            if (it == objectDatas.end())
+                it = objectDatas.begin();
+            nextObjectID = it->first;
+        }
+        if (RE::TESObjectREFR* object = GetREFR(targetObjectID); object)
+        {
+            if (UpdateRawConvexHulls(object, nullptr))
+            {
+                logger::info("{:x} : Detected vertices changes by morph", targetObjectID);
+                UpdatePhysicsSetting(object, true);
+            }
+        }
+    }
+
     void XPBDWorldSystem::onEvent(const Mus::FrameEvent& e)
     {
         if (e.gamePaused && !std::atomic_ref(isRaceSexMenuOpen).load())
-            return;
-        CheckObjectState();
-
-        // wind
         {
-            if (auto p = RE::PlayerCharacter::GetSingleton(); p && p->parentCell && p->parentCell->IsExteriorCell())
-            {
-                if (auto sky = RE::Sky::GetSingleton(); sky)
-                {
-                    physicsWorld->SetWind(sky->windSpeed, sky->windAngle);
-                }
-            }
+            if (isAsyncPhysics)
+                physicsWorld->RunPhysicsWorldAsync(0);
             else
-                physicsWorld->SetWind(0.0f, 0.0f);
+                physicsWorld->RunPhysicsWorld(0);
         }
+        else
+        {
+            if (e.hookType == Mus::FrameEvent::HookType::kEnd)
+            {
+                if (isAsyncPhysics)
+                    physicsWorld->WaitForPhysicsWorldAsync();
+                return;
+            }
 
-        const float deltaTime = std::min(RE::GetSecondsSinceLastFrame(), 0.1f);
-        physicsWorld->RunPhysicsWorld(deltaTime);
+            static TimeProfiler timeProfiler(__func__);
+            timeProfiler.Start();
+
+            CheckObjectState();
+            DetectMorphChanges();
+
+            // wind
+            {
+                if (auto p = RE::PlayerCharacter::GetSingleton(); p && p->parentCell && p->parentCell->IsExteriorCell())
+                {
+                    if (auto sky = RE::Sky::GetSingleton(); sky)
+                    {
+                        physicsWorld->SetWind(sky->windSpeed, sky->windAngle);
+                    }
+                }
+                else
+                    physicsWorld->SetWind(0.0f, 0.0f);
+            }
+
+            timeProfiler.End(this);
+
+            const float deltaTime = std::min(RE::GetSecondsSinceLastFrame(), 0.1f);
+            if (isAsyncPhysics)
+                physicsWorld->RunPhysicsWorldAsync(deltaTime);
+            else
+                physicsWorld->RunPhysicsWorld(deltaTime);
+        }
     }
 
     void XPBDWorldSystem::onEvent(const Mus::FacegenNiNodeEvent& e)
@@ -1007,14 +1132,7 @@ namespace MXPBD
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
                 if (it != objData->rawDatas.end())
                 {
-                    it->input.infos.append_range(newInput.infos);
-                    it->input.bones.insert_range(newInput.bones);
-                    it->input.constraints.insert_range(newInput.constraints);
-                    it->input.angularConstraints.insert_range(newInput.angularConstraints);
-                    for (const auto& noColBones : newInput.convexHullColliders.noCollideBones)
-                    {
-                        it->input.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
-                    }
+                    it->input.merge(newInput);
                 }
             }
         }
@@ -1140,7 +1258,7 @@ namespace MXPBD
     {
         if (!evn)
             return EventResult::kContinue;
-        if (evn->menuName == "RaceSexMenu")
+        if (evn->menuName == "RaceSex Menu")
         {
             if (evn->opening)
             {

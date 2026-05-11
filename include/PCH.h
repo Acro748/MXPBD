@@ -137,7 +137,7 @@ using EventResult = RE::BSEventNotifyControl;
 
 #include <tinyxml2.h>
 
-#include <ankerl/unordered_dense.h>
+#include <xxhash.h>
 
 #include <tbb/task_scheduler_observer.h>
 #include <tbb/parallel_for.h>
@@ -156,10 +156,11 @@ using EventResult = RE::BSEventNotifyControl;
 #include "nifUtil.h"
 #include "Utility.hpp"
 
-#include "MXPBD/ThreadPool.h"
 #include "MXPBD/PhysicsWorldCommon.h"
+#include "MXPBD/Utility.hpp"
+#include "MXPBD/ThreadPool.h"
 #include "MXPBD/DynamicAABBTree.h"
-#include "MXPBD/ConvexHull.h"
+#include "MXPBD/Collider.h"
 #include "MXPBD/PhysicsConfig.h"
 #include "MXPBD/PhysicsWorld.h"
 #include "MXPBD/PhysicsWorldSystem.h"

@@ -3,13 +3,7 @@
 #include <xbyak/xbyak.h>
 
 namespace Mus {
-	constexpr REL::VariantID GameLoopFunction(35565, 36564, 0x005BAB10);
-    constexpr REL::VariantID BSFaceGenNiNodeFunction(26406, 26987, 0x003E81B0);
-	constexpr REL::VariantID ArmorAttachFunction(15535, 15712, 0x001DB9E0);
-    constexpr REL::VariantID ArmorDetachFunction(37945, 38901, 0x006411A0);
-
 	EventDispatcherImpl<FrameEvent>  g_frameEventDispatcher;
-	EventDispatcherImpl<QuitGameEvent>  g_quitGameEventDispatcher;
 	EventDispatcherImpl<FacegenNiNodeEvent> g_facegenNiNodeEventDispatcher;
 	EventDispatcherImpl<ArmorAttachEvent> g_armorAttachEventDispatcher;
 	EventDispatcherImpl<ArmorDetachEvent> g_armorDetachEventDispatcher;
@@ -17,7 +11,7 @@ namespace Mus {
 	EventDispatcherImpl<PlayerCellChangeEvent> g_playerCellChangeEventDispatcher;
 
 	typedef void (*_onFaceGen)(RE::BSFaceGenNiNode*, RE::NiNode*, RE::BSGeometry*, RE::BSTriShape*);
-	REL::Relocation<_onFaceGen> onFaceGen_Orig(BSFaceGenNiNodeFunction);
+    REL::Relocation<_onFaceGen> onFaceGen_Orig(REL::VariantID(26406, 26987, 0x003E81B0));
 	void __fastcall onFaceGen(RE::BSFaceGenNiNode* facegen, RE::NiNode* root, RE::BSGeometry* geometry, RE::BSTriShape* triShape)
 	{
 		FacegenNiNodeEvent e;
@@ -28,7 +22,7 @@ namespace Mus {
 	}
 
 	typedef RE::NiAVObject* (*_ArmorAttachFunction)(void*, RE::NiNode*, RE::NiNode*, std::int32_t, void*, void*, void*, void*, char, std::int32_t, void*);
-	REL::Relocation<_ArmorAttachFunction> onArmorAttachFunction_Orig(ArmorAttachFunction);
+    REL::Relocation<_ArmorAttachFunction> onArmorAttachFunction_Orig(REL::VariantID(15535, 15712, 0x001DB9E0));
 	RE::NiAVObject* __fastcall onArmorAttachFunction(void* unk1, RE::NiNode* armor, RE::NiNode* skeleton, std::int32_t bipedSlot, void* unk4, void* unk5, void* unk6, void* unk7, char unk8, int unk9, void* unk10)
 	{
 		ArmorAttachEvent e;
@@ -52,7 +46,7 @@ namespace Mus {
 	}
 
 	typedef bool (*_ArmorDetachFunction)(void*, RE::Actor*, RE::TESForm*, RE::BaseExtraList*, std::int32_t, RE::BGSEquipSlot*, bool, bool, bool, bool, void*);
-    REL::Relocation<_ArmorDetachFunction> onArmorDetachFunction_Orig(ArmorDetachFunction);
+    REL::Relocation<_ArmorDetachFunction> onArmorDetachFunction_Orig(REL::VariantID(37945, 38901, 0x006411A0));
 	bool __fastcall onArmorDetachFunction(void* unk1, RE::Actor* actor, RE::TESForm* item, RE::BaseExtraList* extraData, std::int32_t count, RE::BGSEquipSlot* equipSlot, bool unkFlag7, bool preventEquip, bool unkFlag9, bool unkFlag10, void* unk11)
 	{
         ArmorDetachEvent e;
@@ -80,52 +74,53 @@ namespace Mus {
         DetourAttach(&(PVOID&)onArmorDetachFunction_Orig, onArmorDetachFunction);
 	}
 
-	RE::FormID PlayerCurrentCell = 0;
-	bool IsPlayerExterior = false;
-	typedef void (*_NullSub)();
-	REL::Relocation<_NullSub> NullSubOrig;
-	void onNullSub()
-	{
-		NullSubOrig();
-
-		auto main = RE::Main::GetSingleton();
-		if (main->quitGame)
-		{
-			QuitGameEvent e;
-			g_quitGameEventDispatcher.dispatch(e);
-		}
-		else
-		{
-			auto p = RE::PlayerCharacter::GetSingleton();
-			if (!p)
-				return;
-			if (auto currentCell = p->GetParentCell(); currentCell)
-			{
-				if (PlayerCurrentCell != 0)
-				{
-					if (PlayerCurrentCell != currentCell->formID)
-					{
-						PlayerCellChangeEvent ce;
-						ce.IsExterior = currentCell->IsExteriorCell();
-						ce.IsChangedInOut = IsPlayerExterior != ce.IsExterior;
-						g_playerCellChangeEventDispatcher.dispatch(ce);
-					}
-				}
-				PlayerCurrentCell = currentCell->formID;
-				IsPlayerExterior = currentCell->IsExteriorCell();
-			}
-
-			const auto menu = RE::UI::GetSingleton();
-			FrameEvent e;
+    RE::FormID PlayerCurrentCell = 0;
+    bool IsPlayerExterior = false;
+	typedef void (*_MainUpdate)();
+    REL::Relocation<_MainUpdate> MainUpdateOrig;
+    void onMainUpdate()
+    {
+        {
+            const auto main = RE::Main::GetSingleton();
+            const auto menu = RE::UI::GetSingleton();
+            FrameEvent e;
+            e.hookType = FrameEvent::HookType::kEnd;
             e.gamePaused = (main ? main->freezeTime : false) || (menu && menu->numPausesGame > 0);
-			g_frameEventDispatcher.dispatch(e);
-		}
-	}
+            g_frameEventDispatcher.dispatch(e);
+        }
+
+        MainUpdateOrig();
+
+        auto p = RE::PlayerCharacter::GetSingleton();
+        if (!p)
+            return;
+        if (auto currentCell = p->GetParentCell(); currentCell)
+        {
+            if (PlayerCurrentCell != 0)
+            {
+                if (PlayerCurrentCell != currentCell->formID)
+                {
+                    PlayerCellChangeEvent ce;
+                    ce.IsExterior = currentCell->IsExteriorCell();
+                    ce.IsChangedInOut = IsPlayerExterior != ce.IsExterior;
+                    g_playerCellChangeEventDispatcher.dispatch(ce);
+                }
+            }
+            PlayerCurrentCell = currentCell->formID;
+            IsPlayerExterior = currentCell->IsExteriorCell();
+        }
+        {
+            const auto main = RE::Main::GetSingleton();
+            const auto menu = RE::UI::GetSingleton();
+            FrameEvent e;
+            e.hookType = FrameEvent::HookType::kStart;
+            e.gamePaused = (main ? main->freezeTime : false) || (menu && menu->numPausesGame > 0);
+            g_frameEventDispatcher.dispatch(e);
+        }
+    }
 	void hookEngineTrampoline(SKSE::Trampoline& trampoline)
-	{
-		//NullSub_594, NullSub_471, NullSub_611
-		constexpr auto GameLoopFunctionOffset = REL::VariantOffset(0x748, 0xC26, 0x7EE);
-		NullSubOrig = trampoline.write_call<5>(GameLoopFunction.address() + GameLoopFunctionOffset.offset(), onNullSub);
+    {
+        MainUpdateOrig = trampoline.write_call<5>(REL::VariantID(35565, 36564, 0x005BAB10).address() + REL::VariantOffset(0x748, 0xC26, 0x7EE).offset(), onMainUpdate);
 	}
 
     typedef RE::NiAVObject* (*_Load3D)(RE::TESObjectREFR*, bool);
@@ -147,6 +142,20 @@ namespace Mus {
         REL::Relocation<std::uintptr_t> vtbl(RE::VTABLE_TESObjectREFR[0]);
         Load3DOrig = reinterpret_cast<_Load3D>(vtbl.write_vfunc(0x6A, onLoad3D));
     }
+	
+    typedef void (*_FaceGenSetBoneName)(RE::BSFaceGenModelExtraData*, std::uint32_t, void*);
+    REL::Relocation<_FaceGenSetBoneName> FaceGenSetBoneNameOrig;
+    void __fastcall onFaceGenSetBoneName(RE::BSFaceGenModelExtraData* extraData, std::uint32_t boneIndex, void* unk3)
+	{
+        if (boneIndex < 8)
+            FaceGenSetBoneNameOrig(extraData, boneIndex, unk3);
+    }
+    void hookFaceGenSetBoneName(SKSE::Trampoline& trampoline)
+	{
+        // sub_14036b470, sub_1403822F0, sub_14037ADD0
+        constexpr auto FaceGenSetBoneNameOffset = REL::VariantOffset(0x7C, 0x9C, 0x7C);
+        FaceGenSetBoneNameOrig = trampoline.write_call<5>(REL::VariantID(24330, 24836, 0x0037ADD0).address() + FaceGenSetBoneNameOffset.offset(), onFaceGenSetBoneName);
+    }
 
 	void fixFaceGenBoneLimit()
     {
@@ -158,7 +167,7 @@ namespace Mus {
         std::uintptr_t BoneLimit = HeadPartBoneLimit.address() + HeadPartBoneLimitOffset.offset();
 
         auto& trampoline = SKSE::GetTrampoline();
-        SKSE::AllocTrampoline(41);
+        SKSE::AllocTrampoline(55);
         struct FaceGenBoneLimitPatchSE : Xbyak::CodeGenerator
         {
             FaceGenBoneLimitPatchSE(std::uintptr_t a_jumpAddr)
@@ -166,7 +175,7 @@ namespace Mus {
                 Xbyak::Label jumpLabel;
 
                 mov(esi, ptr[rax + 0x58]);
-                cmp(esi, 9);
+                cmp(esi, 8);
                 jl(jumpLabel);
                 mov(esi, 8);
 
@@ -182,7 +191,7 @@ namespace Mus {
                 Xbyak::Label jumpLabel;
 
                 mov(ebp, ptr[rax + 0x58]);
-                cmp(ebp, 9);
+                cmp(ebp, 8);
                 jl(jumpLabel);
                 mov(ebp, 8);
 
@@ -203,6 +212,8 @@ namespace Mus {
             faceGenBoneLimitPatch.ready();
             trampoline.write_branch<5>(BoneLimit, trampoline.allocate(faceGenBoneLimitPatch));
         }
+
+        hookFaceGenSetBoneName(trampoline);
         return;
     }
 
@@ -218,7 +229,7 @@ namespace Mus {
 		DetourTransactionCommit();
 
 		auto& trampoline = SKSE::GetTrampoline();
-        SKSE::AllocTrampoline(14);
+        SKSE::AllocTrampoline(28);
 		hookEngineTrampoline(trampoline);
 
 		hookLoad3D();

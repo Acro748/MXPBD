@@ -11,7 +11,7 @@ else()
 endif()
 project(
         MXPBD
-        VERSION 0.2.1
+        VERSION 0.3.0
         DESCRIPTION "MXPBD(${SIMD_LEVEL}) ${TARGET_DESC}"
         LANGUAGES CXX
 )
@@ -28,7 +28,7 @@ configure_file(
 )
 
 set(headers
-        include/MXPBD/ConvexHull.h
+        include/MXPBD/Collider.h
         include/MXPBD/DynamicAABBTree.h
         include/MXPBD/PhysicsConfig.h
         include/MXPBD/PhysicsWorld.h
@@ -36,6 +36,7 @@ set(headers
         include/MXPBD/PhysicsWorldSystem.h
         include/MXPBD/PhysicsWorldUpdater.h
         include/MXPBD/ThreadPool.h
+        include/MXPBD/Utility.hpp
         include/Command.h
         include/Condition.h
         include/Config.h
@@ -47,7 +48,7 @@ set(headers
 )
 
 set(sources
-        src/MXPBD/ConvexHull.cpp
+        src/MXPBD/Collider.cpp
         src/MXPBD/DynamicAABBTree.cpp
         src/MXPBD/PhysicsConfig.cpp
         src/MXPBD/PhysicsWorld.cpp
@@ -80,7 +81,7 @@ find_package(detours)
 find_package(tinyxml2 REQUIRED)
 find_package(magic_enum CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
-find_package(unordered_dense CONFIG REQUIRED)
+find_package(xxhash CONFIG REQUIRED)
 find_package(tbb CONFIG REQUIRED)
 
 add_commonlibsse_plugin(${PROJECT_NAME} SOURCES ${headers} ${sources})
@@ -140,7 +141,7 @@ target_link_libraries(
         magic_enum::magic_enum
         quickhull
         meshoptimizer::meshoptimizer
-        unordered_dense::unordered_dense
+        xxHash::xxhash
         TBB::tbb
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/x64-windows-static-md/lib/detours.lib>
 )

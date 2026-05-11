@@ -5,7 +5,8 @@ namespace MXPBD {
 		public Mus::IEventListener<Mus::FrameEvent>,
 		public Mus::IEventListener<Mus::FacegenNiNodeEvent>,
 		public Mus::IEventListener<Mus::ArmorAttachEvent>,
-		public Mus::IEventListener<Mus::PlayerCellChangeEvent> 
+		public Mus::IEventListener<Mus::PlayerCellChangeEvent> ,
+        public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 	{
 	public:
 		[[nodiscard]] static XPBDWorldUpdater& GetSingleton() {
@@ -79,5 +80,6 @@ namespace MXPBD {
         void onEvent(const Mus::FacegenNiNodeEvent& e) override;
         void onEvent(const Mus::ArmorAttachEvent& e) override;
         void onEvent(const Mus::PlayerCellChangeEvent& e) override;
+        EventResult ProcessEvent(const RE::MenuOpenCloseEvent* evn, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 	};
 }

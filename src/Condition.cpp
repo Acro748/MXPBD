@@ -34,14 +34,7 @@ namespace Mus {
         {
 			if (ConditionCheck(a_actor, condition))
 			{
-                settings.infos.append_range(condition->setting.infos);
-                settings.bones.insert_range(condition->setting.bones);
-                settings.constraints.insert_range(condition->setting.constraints);
-                settings.angularConstraints.insert_range(condition->setting.angularConstraints);
-                for (const auto& noColBones : condition->setting.convexHullColliders.noCollideBones)
-                {
-                    settings.convexHullColliders.noCollideBones[noColBones.first].insert(noColBones.second.begin(), noColBones.second.end());
-                }
+                settings.merge(condition->setting);
 			}
 		}
         return settings;

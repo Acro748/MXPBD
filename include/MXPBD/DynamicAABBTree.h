@@ -20,12 +20,23 @@ namespace MXPBD {
             return {DirectX::XMVectorMin(min, b.min), DirectX::XMVectorMax(max, b.max)};
         }
 
+        [[nodiscard]] inline Vector GetSize() const {
+            return DirectX::XMVectorSubtract(max, min);
+        }
+
         [[nodiscard]] inline float SurfaceArea() const {
             const Vector d = DirectX::XMVectorSubtract(max, min);
             const Vector dSwizzled = DirectX::XMVectorSwizzle<DirectX::XM_SWIZZLE_Y, DirectX::XM_SWIZZLE_Z, DirectX::XM_SWIZZLE_X, DirectX::XM_SWIZZLE_W>(d);
             Vector area = DirectX::XMVector3Dot(d, dSwizzled);
             area = DirectX::XMVectorAdd(area, area);
             return DirectX::XMVectorGetX(area);
+        }
+
+        [[nodiscard]] inline float GetBoundingSphere(const Vector& center) const {
+            const Vector dMin = DirectX::XMVectorAbs(DirectX::XMVectorSubtract(min, center));
+            const Vector dMax = DirectX::XMVectorAbs(DirectX::XMVectorSubtract(max, center));
+            const Vector d = DirectX::XMVectorMax(dMin, dMax);
+            return DirectX::XMVectorGetX(DirectX::XMVector3Length(d));
         }
 
         [[nodiscard]] inline Vector GetCenter() const {

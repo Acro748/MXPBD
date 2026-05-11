@@ -47,42 +47,120 @@ namespace MXPBD
         return 0;
     }
 
-    void PhysicsConfigReader::CreateParent(RE::NiNode* rootNode, PhysicsInput& input) const
+    void PhysicsConfigReader::CreateParentPhysicsBone(RE::NiNode* rootNode, PhysicsInput& input) const
     {
         if (!rootNode)
             return;
+        if (input.bones.empty())
+            return;
+
+        std::vector<std::pair<std::string, PhysicsInput::Bone>> newPhysicsBones;
+        for (auto& bone : input.bones)
+        {
+            if (bone.second.mass <= Epsilon)
+                continue;
+            auto obj = rootNode->GetObjectByName(bone.first);
+            if (!obj || !obj->parent)
+                continue;
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            logger::debug("Added {} parent node as physics bone", parent->name.c_str());
+            newPhysicsBones.emplace_back(parent->name.c_str(), PhysicsInput::Bone());
+        }
+        for (const auto& newBone : newPhysicsBones)
+        {
+            if (input.bones.find(newBone.first) != input.bones.end())
+                continue;
+            input.bones[newBone.first] = newBone.second;
+        }
+    }
+
+    void PhysicsConfigReader::CreateParentConstraint(RE::NiNode* rootNode, PhysicsInput& input) const
+    {
+        if (!rootNode)
+            return;
+        if (input.constraints.empty() && input.angularConstraints.empty())
+            return;
+
         constexpr std::string parConsName = "__PARENT__";
         std::vector<std::pair<std::string, PhysicsInput::Bone>> newPhysicsBones;
         for (auto& cons : input.constraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
-            auto found = std::find(cons.second.anchorBoneNames.begin(), cons.second.anchorBoneNames.end(), parConsName);
-            if (found == cons.second.anchorBoneNames.end())
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&parConsName](const ConstraintData& data) {
+                return data.anchorBoneName == parConsName;
+            });
+            if (found == cons.second.anchors.end())
                 continue;
             auto obj = rootNode->GetObjectByName(cons.first);
-            if (!obj || !obj->parent || obj->parent->name.empty())
+            if (!obj || !obj->parent)
                 continue;
-            std::string_view parentNodeName = obj->parent->name.c_str();
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            std::string_view parentNodeName = parent->name.c_str();
             logger::debug("{} : parent constraint found {}", cons.first, parentNodeName);
-            *found = parentNodeName;
+            found->anchorBoneName = parentNodeName;
             PhysicsInput::Bone newParentBone;
             newParentBone.mass = 0.0f;
             newPhysicsBones.emplace_back(parentNodeName, newParentBone);
         }
         for (auto& cons : input.angularConstraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
-            auto found = std::find(cons.second.anchorBoneNames.begin(), cons.second.anchorBoneNames.end(), parConsName);
-            if (found == cons.second.anchorBoneNames.end())
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&parConsName](const AngularConstraintData& data) {
+                return data.anchorBoneName == parConsName;
+            });
+            if (found == cons.second.anchors.end())
                 continue;
             auto obj = rootNode->GetObjectByName(cons.first);
-            if (!obj || !obj->parent || obj->parent->name.empty())
+            if (!obj || !obj->parent)
                 continue;
-            std::string_view parentNodeName = obj->parent->name.c_str();
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            std::string_view parentNodeName = parent->name.c_str();
             logger::debug("{} : parent angular constraint found {}", cons.first, parentNodeName);
-            *found = parentNodeName;
+            found->anchorBoneName = parentNodeName;
+            newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
+        }
+        for (auto& cons : input.deformConstraints)
+        {
+            if (cons.second.anchors.empty())
+                continue;
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&parConsName](const DeformConstraintData& data) {
+                return data.anchorBoneName == parConsName;
+            });
+            if (found == cons.second.anchors.end())
+                continue;
+            auto obj = rootNode->GetObjectByName(cons.first);
+            if (!obj || !obj->parent)
+                continue;
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            std::string_view parentNodeName = parent->name.c_str();
+            logger::debug("{} : parent deform constraint found {}", cons.first, parentNodeName);
+            found->anchorBoneName = parentNodeName;
             newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
         }
         for (const auto& newBone : newPhysicsBones)
@@ -93,56 +171,113 @@ namespace MXPBD
         }
     }
 
-    void PhysicsConfigReader::CreateOriginal(RE::NiNode* rootNode, PhysicsInput& input) const
+    void PhysicsConfigReader::CreateOriginalConstraint(RE::NiNode* rootNode, PhysicsInput& input) const
     {
         if (!rootNode)
             return;
+        if (input.constraints.empty() && input.angularConstraints.empty())
+            return;
+
         constexpr std::string orgConsName = "__ORIGINAL__";
         std::vector<std::pair<std::string, PhysicsInput::Bone>> newPhysicsBones;
         for (auto& cons : input.constraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
-            auto found = std::find(cons.second.anchorBoneNames.begin(), cons.second.anchorBoneNames.end(), orgConsName);
-            if (found == cons.second.anchorBoneNames.end())
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&orgConsName](const ConstraintData& data) {
+                return data.anchorBoneName == orgConsName;
+            });
+            if (found == cons.second.anchors.end())
                 continue;
             auto obj = rootNode->GetObjectByName(cons.first);
-            if (!obj || !obj->parent || obj->parent->name.empty())
+            if (!obj || !obj->parent)
                 continue;
-            const std::string particleBoneName = cons.first + orgConsName;
-            *found = particleBoneName;
-            std::string_view parentName = obj->parent->name.c_str();
-            logger::debug("{} : original constraint found {}", cons.first, parentName);
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            std::string_view parentNodeName = parent->name.c_str();
+            logger::debug("{} : original constraint found {}", cons.first, parentNodeName);
 
+            const RE::NiPoint3 worldDiff = obj->world.translate - parent->world.translate;
+            const RE::NiPoint3 localOffset = (parent->world.rotate.Transpose() * worldDiff) * reciprocal(parent->world.scale);
+            const std::string particleBoneName = cons.first + orgConsName;
+            found->anchorBoneName = particleBoneName;
             PhysicsInput::Bone newParticleBone;
             newParticleBone.mass = 0.0f;
-            newParticleBone.parentBoneName = parentName;
+            newParticleBone.parentBoneName = parentNodeName;
             newParticleBone.isParticle = 1;
-            newParticleBone.offset = obj->local.translate;
-            newPhysicsBones.emplace_back(parentName, PhysicsInput::Bone());
+            newParticleBone.offset = localOffset;
+            newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
             newPhysicsBones.emplace_back(particleBoneName, newParticleBone);
         }
         for (auto& cons : input.angularConstraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
-            auto found = std::find(cons.second.anchorBoneNames.begin(), cons.second.anchorBoneNames.end(), orgConsName);
-            if (found == cons.second.anchorBoneNames.end())
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&orgConsName](const AngularConstraintData& data) {
+                return data.anchorBoneName == orgConsName;
+            });
+            if (found == cons.second.anchors.end())
                 continue;
             auto obj = rootNode->GetObjectByName(cons.first);
-            if (!obj || !obj->parent || obj->parent->name.empty())
+            if (!obj || !obj->parent)
                 continue;
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            std::string_view parentNodeName = parent->name.c_str();
+            logger::debug("{} : original angular constraint found {}", cons.first, parentNodeName);
+            const RE::NiPoint3 worldDiff = obj->world.translate - parent->world.translate;
+            const RE::NiPoint3 localOffset = (parent->world.rotate.Transpose() * worldDiff) * reciprocal(parent->world.scale);
             const std::string particleBoneName = cons.first + orgConsName;
-            *found = particleBoneName;
-            std::string_view parentName = obj->parent->name.c_str();
-            logger::debug("{} : original angular constraint found {}", cons.first, parentName);
-
+            found->anchorBoneName = particleBoneName;
             PhysicsInput::Bone newParticleBone;
             newParticleBone.mass = 0.0f;
-            newParticleBone.parentBoneName = parentName;
+            newParticleBone.parentBoneName = parentNodeName;
             newParticleBone.isParticle = 1;
-            newParticleBone.offset = obj->local.translate;
-            newPhysicsBones.emplace_back(parentName, PhysicsInput::Bone());
+            newParticleBone.offset = localOffset;
+            newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
+            newPhysicsBones.emplace_back(particleBoneName, newParticleBone);
+        }
+        for (auto& cons : input.deformConstraints)
+        {
+            if (cons.second.anchors.empty())
+                continue;
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&orgConsName](const DeformConstraintData& data) {
+                return data.anchorBoneName == orgConsName;
+            });
+            if (found == cons.second.anchors.end())
+                continue;
+            auto obj = rootNode->GetObjectByName(cons.first);
+            if (!obj || !obj->parent)
+                continue;
+            auto parent = obj->parent;
+            while (parent->name.empty() && parent->parent)
+            {
+                parent = parent->parent;
+            }
+            if (parent->name.empty())
+                continue;
+            std::string_view parentNodeName = parent->name.c_str();
+            logger::debug("{} : original deform constraint found {}", cons.first, parentNodeName);
+            const RE::NiPoint3 worldDiff = obj->world.translate - parent->world.translate;
+            const RE::NiPoint3 localOffset = (parent->world.rotate.Transpose() * worldDiff) * reciprocal(parent->world.scale);
+            const std::string particleBoneName = cons.first + orgConsName;
+            found->anchorBoneName = particleBoneName;
+            PhysicsInput::Bone newParticleBone;
+            newParticleBone.mass = 0.0f;
+            newParticleBone.parentBoneName = parentNodeName;
+            newParticleBone.isParticle = 1;
+            newParticleBone.offset = localOffset;
+            newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
             newPhysicsBones.emplace_back(particleBoneName, newParticleBone);
         }
         for (const auto& newBone : newPhysicsBones)
@@ -153,17 +288,23 @@ namespace MXPBD
         }
     }
 
-    void PhysicsConfigReader::CreateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas) const
+    void PhysicsConfigReader::CreateVolumeConstraint(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHull>& a_mergedConvexHulls) const
     {
         if (!rootNode)
             return;
+        if (input.constraints.empty() && input.angularConstraints.empty())
+            return;
+
         constexpr std::string volumeName = "__VOLUME__";
         bool isVolume = false;
         for (auto& cons : input.constraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
-            if (std::find(cons.second.anchorBoneNames.begin(), cons.second.anchorBoneNames.end(), volumeName) == cons.second.anchorBoneNames.end())
+            auto found = std::find_if(cons.second.anchors.begin(), cons.second.anchors.end(), [&volumeName](const ConstraintData& data) {
+                return data.anchorBoneName == volumeName;
+            });
+            if (found == cons.second.anchors.end())
                 continue;
             isVolume = true;
             break;
@@ -176,53 +317,44 @@ namespace MXPBD
             return;
 
         std::unordered_map<std::string, ConvexHullDataBatch> convexHullDataBatches;
+        for (auto& mergedHull : a_mergedConvexHulls)
         {
-            std::unordered_map<std::string, PointCloud> pointClouds;
-            for (const auto& rawConvexHullData : a_rawConvexHullDatas)
-            {
-                for (const auto& rawConvexHull : rawConvexHullData.rawConvexHulls)
-                {
-                    pointClouds[rawConvexHull.boneName].vertices.append_range(rawConvexHull.vertices);
-                }
-            }
-            for (auto& pc : pointClouds)
-            {
-                RawConvexHull mergedRawConvexHull;
-                ConvexHullDataBatch newConvexHullDataBatch;
-                GenerateRawConvexHull(pc.second, mergedRawConvexHull);
-                GenerateConvexHullBatch(mergedRawConvexHull, newConvexHullDataBatch);
-                convexHullDataBatches[pc.first] = newConvexHullDataBatch;
-            }
+            ConvexHullDataBatch newConvexHullDataBatch;
+            GenerateConvexHullBatch(mergedHull, newConvexHullDataBatch);
+            convexHullDataBatches[mergedHull.boneName] = newConvexHullDataBatch;
         }
 
         std::vector<std::pair<std::string, PhysicsInput::Bone>> newPhysicsBones;
         for (auto& cons : input.constraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
             for (std::uint8_t anchIdx = 0; anchIdx < ANCHOR_MAX; ++anchIdx)
             {
-                if (cons.second.anchorBoneNames.size() <= anchIdx)
+                if (cons.second.anchors.size() <= anchIdx)
                     break;
-                if (cons.second.anchorBoneNames[anchIdx] != volumeName)
+                if (cons.second.anchors[anchIdx].anchorBoneName != volumeName)
                     continue;
 
                 auto chdbIt = convexHullDataBatches.find(cons.first);
                 if (chdbIt == convexHullDataBatches.end())
                 {
                     logger::error("{:x} : Unable to get mesh shape for {}. so set __ORIGINAL__", user->formID, cons.first);
-                    cons.second.anchorBoneNames[anchIdx] = "__ORIGINAL__";
+                    cons.second.anchors[anchIdx].anchorBoneName = "__ORIGINAL__";
                     continue;
                 }
 
                 auto obj = rootNode->GetObjectByName(cons.first);
-                if (!obj || !obj->parent || obj->parent->name.empty())
-                {
-                    logger::error("{:x} : Unable to get parent node for {}", user->formID, cons.first);
+                if (!obj || !obj->parent)
                     continue;
+                auto parent = obj->parent;
+                while (parent->name.empty() && parent->parent)
+                {
+                    parent = parent->parent;
                 }
-
-                std::string_view parentName = obj->parent->name.c_str();
+                if (parent->name.empty())
+                    continue;
+                std::string_view parentNodeName = parent->name.c_str();
                 std::vector<std::uint32_t> selectedIdx;
                 const std::uint8_t requiredAnchors = ANCHOR_MAX - anchIdx;
                 const std::uint8_t maxToPick = std::min<std::uint8_t>(requiredAnchors, COL_VERTEX_MAX);
@@ -279,74 +411,65 @@ namespace MXPBD
                     }
                 }
 
-                cons.second.anchorBoneNames.resize(ANCHOR_MAX);
-                cons.second.complianceStretch.resize(ANCHOR_MAX);
-                cons.second.complianceSquish.resize(ANCHOR_MAX);
-                cons.second.squishLimit.resize(ANCHOR_MAX);
-                cons.second.stretchLimit.resize(ANCHOR_MAX);
-                cons.second.angularLimit.resize(ANCHOR_MAX);
-                cons.second.squishDamping.resize(ANCHOR_MAX);
-                cons.second.stretchDamping.resize(ANCHOR_MAX);
+                cons.second.anchors.resize(ANCHOR_MAX);
                 std::vector<std::string> anchorNames(ANCHOR_MAX);
                 for (std::uint8_t i = 0; i < anchIdx; ++i)
                 {
-                    anchorNames[i] = cons.second.anchorBoneNames[i];
+                    anchorNames[i] = cons.second.anchors[i].anchorBoneName;
                 }
                 for (std::uint8_t i = anchIdx; i < ANCHOR_MAX; ++i)
                 {
                     const std::uint32_t vi = selectedIdx.empty() ? 0 : selectedIdx[std::min<std::size_t>(i - anchIdx, selectedIdx.size() - 1)];
-                    const RE::NiPoint3 pSpacePos = obj->local.translate + (obj->local.rotate * RE::NiPoint3(chdbIt->second.vX[vi], chdbIt->second.vY[vi], chdbIt->second.vZ[vi]));
+                    const RE::NiPoint3 worldPos = obj->world.translate + (obj->world.rotate * RE::NiPoint3(chdbIt->second.vX[vi], chdbIt->second.vY[vi], chdbIt->second.vZ[vi]));
+                    const RE::NiPoint3 worldDiff = worldPos - parent->world.translate;
+                    const RE::NiPoint3 localOffset = (parent->world.rotate.Transpose() * worldDiff) * reciprocal(parent->world.scale);
                     std::string particleBoneName = cons.first + volumeName + std::to_string(i);
 
                     PhysicsInput::Bone particleBone;
                     particleBone.mass = 0.0f;
                     particleBone.isParticle = 1;
-                    particleBone.parentBoneName = parentName;
-                    particleBone.offset = pSpacePos;
+                    particleBone.parentBoneName = parentNodeName;
+                    particleBone.offset = localOffset;
 
                     newPhysicsBones.emplace_back(particleBoneName, particleBone);
-                    cons.second.anchorBoneNames[i] = particleBoneName;
-                    cons.second.complianceStretch[i] = cons.second.complianceStretch[anchIdx];
-                    cons.second.complianceSquish[i] = cons.second.complianceSquish[anchIdx];
-                    cons.second.squishLimit[i] = cons.second.squishLimit[anchIdx];
-                    cons.second.stretchLimit[i] = cons.second.stretchLimit[anchIdx];
-                    cons.second.angularLimit[i] = cons.second.angularLimit[anchIdx];
-                    cons.second.squishDamping[i] = cons.second.squishDamping[anchIdx];
-                    cons.second.stretchDamping[i] = cons.second.stretchDamping[anchIdx];
-
-                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentName);
+                    cons.second.anchors[i] = cons.second.anchors[anchIdx];
+                    cons.second.anchors[i].anchorBoneName = particleBoneName;
+                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentNodeName);
                 }
-                newPhysicsBones.emplace_back(parentName, PhysicsInput::Bone());
+                newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
                 break;
             }
         }
         for (auto& cons : input.angularConstraints)
         {
-            if (cons.second.anchorBoneNames.empty())
+            if (cons.second.anchors.empty())
                 continue;
             for (std::uint8_t anchIdx = 0; anchIdx < ANCHOR_MAX; ++anchIdx)
             {
-                if (cons.second.anchorBoneNames.size() <= anchIdx)
+                if (cons.second.anchors.size() <= anchIdx)
                     break;
-                if (cons.second.anchorBoneNames[anchIdx] != volumeName)
+                if (cons.second.anchors[anchIdx].anchorBoneName != volumeName)
                     continue;
 
                 auto chdbIt = convexHullDataBatches.find(cons.first);
                 if (chdbIt == convexHullDataBatches.end())
                 {
                     logger::error("{:x} : Unable to get mesh shape for {}. so set __ORIGINAL__", user->formID, cons.first);
-                    cons.second.anchorBoneNames[anchIdx] = "__ORIGINAL__";
+                    cons.second.anchors[anchIdx].anchorBoneName = "__ORIGINAL__";
                     continue;
                 }
 
                 auto obj = rootNode->GetObjectByName(cons.first);
-                if (!obj || !obj->parent || obj->parent->name.empty())
-                {
-                    logger::error("{:x} : Unable to get parent node for {}", user->formID, cons.first);
+                if (!obj || !obj->parent)
                     continue;
+                auto parent = obj->parent;
+                while (parent->name.empty() && parent->parent)
+                {
+                    parent = parent->parent;
                 }
-
-                std::string_view parentName = obj->parent->name.c_str();
+                if (parent->name.empty())
+                    continue;
+                std::string_view parentNodeName = parent->name.c_str();
                 std::vector<std::uint32_t> selectedIdx;
                 const std::uint8_t requiredAnchors = ANCHOR_MAX - anchIdx;
                 const std::uint8_t maxToPick = std::min<std::uint8_t>(requiredAnchors, COL_VERTEX_MAX);
@@ -405,36 +528,151 @@ namespace MXPBD
                     }
                 }
 
-                cons.second.anchorBoneNames.resize(ANCHOR_MAX);
-                cons.second.compliance.resize(ANCHOR_MAX);
-                cons.second.limit.resize(ANCHOR_MAX);
-                cons.second.damping.resize(ANCHOR_MAX);
+                cons.second.anchors.resize(ANCHOR_MAX);
                 std::vector<std::string> anchorNames(ANCHOR_MAX);
                 for (std::uint8_t i = 0; i < anchIdx; ++i)
                 {
-                    anchorNames[i] = cons.second.anchorBoneNames[i];
+                    anchorNames[i] = cons.second.anchors[i].anchorBoneName;
                 }
                 for (std::uint8_t i = anchIdx; i < ANCHOR_MAX; ++i)
                 {
                     const std::uint32_t vi = selectedIdx.empty() ? 0 : selectedIdx[std::min<std::size_t>(i - anchIdx, selectedIdx.size() - 1)];
-                    const RE::NiPoint3 pSpacePos = obj->local.translate + (obj->local.rotate * RE::NiPoint3(chdbIt->second.vX[vi], chdbIt->second.vY[vi], chdbIt->second.vZ[vi]));
+                    const RE::NiPoint3 worldPos = obj->world.translate + (obj->world.rotate * RE::NiPoint3(chdbIt->second.vX[vi], chdbIt->second.vY[vi], chdbIt->second.vZ[vi]));
+                    const RE::NiPoint3 worldDiff = worldPos - parent->world.translate;
+                    const RE::NiPoint3 localOffset = (parent->world.rotate.Transpose() * worldDiff) * reciprocal(parent->world.scale);
                     std::string particleBoneName = cons.first + volumeName + std::to_string(i);
 
                     PhysicsInput::Bone particleBone;
                     particleBone.mass = 0.0f;
                     particleBone.isParticle = 1;
-                    particleBone.parentBoneName = parentName;
-                    particleBone.offset = pSpacePos;
+                    particleBone.parentBoneName = parentNodeName;
+                    particleBone.offset = localOffset;
 
                     newPhysicsBones.emplace_back(particleBoneName, particleBone);
-                    cons.second.anchorBoneNames[i] = particleBoneName;
-                    cons.second.compliance[i] = cons.second.compliance[anchIdx];
-                    cons.second.limit[i] = cons.second.limit[anchIdx];
-                    cons.second.damping[i] = cons.second.damping[anchIdx];
+                    cons.second.anchors[i] = cons.second.anchors[anchIdx];
+                    cons.second.anchors[i].anchorBoneName = particleBoneName;
 
-                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentName);
+                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentNodeName);
                 }
-                newPhysicsBones.emplace_back(parentName, PhysicsInput::Bone());
+                newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
+                break;
+            }
+        }
+        for (auto& cons : input.deformConstraints)
+        {
+            if (cons.second.anchors.empty())
+                continue;
+            for (std::uint8_t anchIdx = 0; anchIdx < ANCHOR_MAX; ++anchIdx)
+            {
+                if (cons.second.anchors.size() <= anchIdx)
+                    break;
+                if (cons.second.anchors[anchIdx].anchorBoneName != volumeName)
+                    continue;
+
+                auto chdbIt = convexHullDataBatches.find(cons.first);
+                if (chdbIt == convexHullDataBatches.end())
+                {
+                    logger::error("{:x} : Unable to get mesh shape for {}. so set __ORIGINAL__", user->formID, cons.first);
+                    cons.second.anchors[anchIdx].anchorBoneName = "__ORIGINAL__";
+                    continue;
+                }
+
+                auto obj = rootNode->GetObjectByName(cons.first);
+                if (!obj || !obj->parent)
+                    continue;
+                auto parent = obj->parent;
+                while (parent->name.empty() && parent->parent)
+                {
+                    parent = parent->parent;
+                }
+                if (parent->name.empty())
+                    continue;
+                std::string_view parentNodeName = parent->name.c_str();
+                std::vector<std::uint32_t> selectedIdx;
+                const std::uint8_t requiredAnchors = ANCHOR_MAX - anchIdx;
+                const std::uint8_t maxToPick = std::min<std::uint8_t>(requiredAnchors, COL_VERTEX_MAX);
+                if (maxToPick > 0)
+                {
+                    AABB aabb = AABB();
+                    for (std::uint8_t v = 0; v < COL_VERTEX_MAX; ++v)
+                    {
+                        const Vector p = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
+                        const AABB vAABB(p, p);
+                        aabb = aabb.Merge(vAABB);
+                    }
+                    const Vector center = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(aabb.min, aabb.max), vHalf);
+
+                    std::uint32_t bestV = 0;
+                    Vector maxDistSq = vNegOne;
+                    for (std::uint32_t v = 0; v < COL_VERTEX_MAX; ++v)
+                    {
+                        const Vector p = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
+                        const Vector dSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(p, center));
+                        if (DirectX::XMVector3Less(maxDistSq, dSq))
+                        {
+                            maxDistSq = dSq;
+                            bestV = v;
+                        }
+                    }
+                    selectedIdx.push_back(bestV);
+
+                    for (std::uint8_t k = 1; k < maxToPick; ++k)
+                    {
+                        bestV = 0;
+                        maxDistSq = vNegOne;
+
+                        for (std::uint32_t v = 0; v < COL_VERTEX_MAX; ++v)
+                        {
+                            if (std::find(selectedIdx.begin(), selectedIdx.end(), v) != selectedIdx.end())
+                                continue;
+
+                            Vector minDistToSelected = vInf;
+                            for (std::uint32_t sel : selectedIdx)
+                            {
+                                const Vector av = DirectX::XMVectorSet(chdbIt->second.vX[v], chdbIt->second.vY[v], chdbIt->second.vZ[v], 0.0f);
+                                const Vector bv = DirectX::XMVectorSet(chdbIt->second.vX[sel], chdbIt->second.vY[sel], chdbIt->second.vZ[sel], 0.0f);
+                                const Vector dSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSubtract(av, bv));
+                                if (DirectX::XMVector3Less(dSq, minDistToSelected))
+                                    minDistToSelected = dSq;
+                            }
+
+                            if (DirectX::XMVector3Less(maxDistSq, minDistToSelected))
+                            {
+                                maxDistSq = minDistToSelected;
+                                bestV = v;
+                            }
+                        }
+                        selectedIdx.push_back(bestV);
+                    }
+                }
+
+                cons.second.anchors.resize(ANCHOR_MAX);
+                std::vector<std::string> anchorNames(ANCHOR_MAX);
+                for (std::uint8_t i = 0; i < anchIdx; ++i)
+                {
+                    anchorNames[i] = cons.second.anchors[i].anchorBoneName;
+                }
+                for (std::uint8_t i = anchIdx; i < ANCHOR_MAX; ++i)
+                {
+                    const std::uint32_t vi = selectedIdx.empty() ? 0 : selectedIdx[std::min<std::size_t>(i - anchIdx, selectedIdx.size() - 1)];
+                    const RE::NiPoint3 worldPos = obj->world.translate + (obj->world.rotate * RE::NiPoint3(chdbIt->second.vX[vi], chdbIt->second.vY[vi], chdbIt->second.vZ[vi]));
+                    const RE::NiPoint3 worldDiff = worldPos - parent->world.translate;
+                    const RE::NiPoint3 localOffset = (parent->world.rotate.Transpose() * worldDiff) * reciprocal(parent->world.scale);
+                    std::string particleBoneName = cons.first + volumeName + std::to_string(i);
+
+                    PhysicsInput::Bone particleBone;
+                    particleBone.mass = 0.0f;
+                    particleBone.isParticle = 1;
+                    particleBone.parentBoneName = parentNodeName;
+                    particleBone.offset = localOffset;
+
+                    newPhysicsBones.emplace_back(particleBoneName, particleBone);
+                    cons.second.anchors[i] = cons.second.anchors[anchIdx];
+                    cons.second.anchors[i].anchorBoneName = particleBoneName;
+
+                    logger::debug("{} : added particle for {} on {}", particleBoneName, cons.first, parentNodeName);
+                }
+                newPhysicsBones.emplace_back(parentNodeName, PhysicsInput::Bone());
                 break;
             }
         }
@@ -446,13 +684,52 @@ namespace MXPBD
         }
     }
 
+    void PhysicsConfigReader::UpdateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHull>& a_mergedConvexHulls) const
+    {
+        for (auto& bone : input.bones)
+        {
+            if (bone.second.mass <= Epsilon || !bone.second.enableDynamicVolume)
+                continue;
+            auto it = std::find_if(a_mergedConvexHulls.begin(), a_mergedConvexHulls.end(), [&](const RawConvexHull& convexHull) {
+                return convexHull.boneName == bone.first;
+            });
+            if (it == a_mergedConvexHulls.end())
+                continue;
+            bone.second.currentVolume = GetVolume(*it) * SkyrimWorldScaleVolume * Mus::Config::GetSingleton().GetVolumeMultiplier();
+        }
+    }
+
+    void PhysicsConfigReader::CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHull>& a_mergedConvexHulls) const
+    {
+        // CreateParentPhysicsBone(rootNode, input);
+        CreateParentConstraint(rootNode, input);
+        CreateVolumeConstraint(rootNode, input, a_mergedConvexHulls);
+        CreateOriginalConstraint(rootNode, input);
+        UpdateVolume(rootNode, input, a_mergedConvexHulls);
+    }
     void PhysicsConfigReader::CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas) const
     {
-        if (input.bones.empty() || input.constraints.empty())
-            return;
-        CreateParent(rootNode, input);
-        CreateVolume(rootNode, input, a_rawConvexHullDatas);
-        CreateOriginal(rootNode, input);
+        std::vector<RawConvexHull> mergedConvexHulls;
+        {
+            std::unordered_map<std::string, PointCloud> pointClouds;
+            for (const auto& rawConvexHullData : a_rawConvexHullDatas)
+            {
+                for (const auto& rawConvexHull : rawConvexHullData.rawConvexHulls)
+                {
+                    pointClouds[rawConvexHull.boneName].boneName = rawConvexHull.boneName;
+                    pointClouds[rawConvexHull.boneName].vertices.append_range(rawConvexHull.vertices);
+                }
+            }
+            for (auto& pc : pointClouds)
+            {
+                RawConvexHull mergedRawConvexHull;
+                ConvexHullDataBatch newConvexHullDataBatch;
+                GenerateRawConvexHull(pc.second, mergedRawConvexHull);
+                mergedConvexHulls.push_back(std::move(mergedRawConvexHull));
+            }
+        }
+
+        CreateProperties(rootNode, input, mergedConvexHulls);
     }
 
     void PhysicsConfigReader::AssignDefaultCollisionLayerGroup(const std::uint32_t collisionLayerGroup, PhysicsInput& input)
@@ -504,8 +781,13 @@ namespace MXPBD
         input.infos.push_back({false, file});
 
         PhysicsInput::Bone defaultBone;
+        std::unordered_map<std::string, PhysicsInput::Bone> templateBone;
         ConstraintData defaultLinearConstraint;
+        std::unordered_map<std::string, ConstraintData> templateLinearConstraint;
         AngularConstraintData defaultAngularConstraint;
+        std::unordered_map<std::string, AngularConstraintData> templateAngularConstraint;
+        DeformConstraintData defaultDeformConstraint;
+        std::unordered_map<std::string, DeformConstraintData> templateDeformConstraint;
 
         tinyxml2::XMLElement* elem = root->FirstChildElement();
         while (elem)
@@ -513,10 +795,16 @@ namespace MXPBD
             const Mus::lString elemName = elem->Name();
             if (elemName == "bone-default")
             {
+                PhysicsInput::Bone* currentBone = &defaultBone;
+                if (const char* templateName = elem->Attribute("name"); templateName)
+                {
+                    templateBone.emplace(templateName, defaultBone);
+                    currentBone = &templateBone[templateName];
+                }
                 tinyxml2::XMLElement* boneDefaultElem = elem->FirstChildElement();
                 while (boneDefaultElem)
                 {
-                    GetBoneData(boneDefaultElem->Name(), boneDefaultElem, defaultBone);
+                    GetBoneData(boneDefaultElem->Name(), boneDefaultElem, *currentBone);
                     boneDefaultElem = boneDefaultElem->NextSiblingElement();
                 }
             }
@@ -528,20 +816,28 @@ namespace MXPBD
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-
-                PhysicsInput::Bone newBone = defaultBone;
+                PhysicsInput::Bone defaultBoneCopy = defaultBone;
+                if (const char* templateName = elem->Attribute("template"); templateName)
+                {
+                    if (auto tit = templateBone.find(templateName); tit != templateBone.end())
+                    {
+                        defaultBoneCopy = tit->second;
+                    }
+                }
+                PhysicsInput::Bone* newBone = &defaultBoneCopy;
                 tinyxml2::XMLElement* boneElem = elem->FirstChildElement();
                 while (boneElem)
                 {
-                    GetBoneData(boneElem->Name(), boneElem, newBone);
+                    GetBoneData(boneElem->Name(), boneElem, *newBone);
                     boneElem = boneElem->NextSiblingElement();
                 }
-                BoneLogging(file, boneName, newBone);
-                newBone.restPoseCompliance *= COMPLIANCE_SCALE;
-                newBone.restPoseAngularLimit = DirectX::XMConvertToRadians(newBone.restPoseAngularLimit);
-                newBone.restPoseAngularCompliance *= COMPLIANCE_SCALE;
-                newBone.collisionCompliance *= COMPLIANCE_SCALE;
-                input.bones.emplace(boneName, newBone);
+                BoneLogging(file, boneName, *newBone);
+                newBone->animDriveCompliance *= COMPLIANCE_SCALE;
+                newBone->animDriveAngularCompliance *= COMPLIANCE_SCALE;
+                newBone->collisionCompliance *= COMPLIANCE_SCALE;
+                newBone->angularLimitPositive *= toRadian;
+                newBone->angularLimitNegative *= toRadian;
+                input.bones.emplace(boneName, *newBone);
             }
             else if (elemName == "nocollide")
             {
@@ -552,15 +848,21 @@ namespace MXPBD
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                input.convexHullColliders.noCollideBones[A].insert(B);
+                input.colliders.noCollideBones[A].insert(B);
                 logger::debug("{} : bone no collide {} - {}", file, A, B);
             }
             else if (elemName == "linear-constraint-default")
             {
+                ConstraintData* currentCons = &defaultLinearConstraint;
+                if (const char* templateName = elem->Attribute("name"); templateName)
+                {
+                    templateLinearConstraint.emplace(templateName, defaultLinearConstraint);
+                    currentCons = &templateLinearConstraint[templateName];
+                }
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    GetLinearConstraint(consElem->Name(), consElem, defaultLinearConstraint);
+                    GetLinearConstraint(consElem->Name(), consElem, *currentCons);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -573,36 +875,52 @@ namespace MXPBD
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                ConstraintData newCons = defaultLinearConstraint;
+                ConstraintData defaultConsCopy = defaultLinearConstraint;
+                if (const char* templateName = elem->Attribute("template"); templateName)
+                {
+                    if (auto tit = templateLinearConstraint.find(templateName); tit != templateLinearConstraint.end())
+                    {
+                        defaultConsCopy = tit->second;
+                    }
+                }
+                ConstraintData* newCons = &defaultConsCopy;
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    GetLinearConstraint(consElem->Name(), consElem, newCons);
+                    GetLinearConstraint(consElem->Name(), consElem, *newCons);
                     consElem = consElem->NextSiblingElement();
                 }
                 auto& cons = input.constraints[A];
-                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchorBoneNames.size());
+                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchors.size());
                 if (anchIdx >= ANCHOR_MAX)
                 {
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                cons.anchorBoneNames.push_back(B);
-                cons.complianceSquish.push_back(newCons.complianceSquish * COMPLIANCE_SCALE);
-                cons.complianceStretch.push_back(newCons.complianceStretch * COMPLIANCE_SCALE);
-                cons.squishLimit.push_back(newCons.squishLimit);
-                cons.stretchLimit.push_back(newCons.stretchLimit);
-                cons.angularLimit.push_back(DirectX::XMConvertToRadians(newCons.angularLimit));
-                cons.squishDamping.push_back(newCons.squishDamping);
-                cons.stretchDamping.push_back(newCons.stretchDamping);
-                LinearConstraintLogging(file, A, B, anchIdx, newCons);
+                PhysicsInput::Constraint::AnchorData newData = {
+                    .anchorBoneName = B,
+                    .complianceSquish = newCons->complianceSquish * COMPLIANCE_SCALE,
+                    .complianceStretch = newCons->complianceStretch * COMPLIANCE_SCALE,
+                    .squishMargin = newCons->squishMargin,
+                    .stretchMargin = newCons->stretchMargin,
+                    .squishDamping = newCons->squishDamping,
+                    .stretchDamping = newCons->stretchDamping,
+                };
+                cons.anchors.push_back(std::move(newData));
+                LinearConstraintLogging(file, A, B, anchIdx, *newCons);
             }
             else if (elemName == "angular-constraint-default")
             {
+                AngularConstraintData* currentCons = &defaultAngularConstraint;
+                if (const char* templateName = elem->Attribute("name"); templateName)
+                {
+                    templateAngularConstraint.emplace(templateName, defaultAngularConstraint);
+                    currentCons = &templateAngularConstraint[templateName];
+                }
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    GetAngularConstraint(consElem->Name(), consElem, defaultAngularConstraint);
+                    GetAngularConstraint(consElem->Name(), consElem, *currentCons);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -615,25 +933,92 @@ namespace MXPBD
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                AngularConstraintData newCons = defaultAngularConstraint;
+                AngularConstraintData defaultConsCopy = defaultAngularConstraint;
+                if (const char* templateName = elem->Attribute("template"); templateName)
+                {
+                    if (auto tit = templateAngularConstraint.find(templateName); tit != templateAngularConstraint.end())
+                    {
+                        defaultConsCopy = tit->second;
+                    }
+                }
+                AngularConstraintData* newCons = &defaultConsCopy;
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    GetAngularConstraint(consElem->Name(), consElem, newCons);
+                    GetAngularConstraint(consElem->Name(), consElem, *newCons);
                     consElem = consElem->NextSiblingElement();
                 }
                 auto& cons = input.angularConstraints[A];
-                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchorBoneNames.size());
+                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchors.size());
                 if (anchIdx >= ANCHOR_MAX)
                 {
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                cons.anchorBoneNames.push_back(B);
-                cons.compliance.push_back(newCons.compliance * COMPLIANCE_SCALE);
-                cons.limit.push_back(DirectX::XMConvertToRadians(newCons.limit));
-                cons.damping.push_back(newCons.damping);
-                AngularConstraintLogging(file, A, B, anchIdx, newCons);
+                PhysicsInput::AngularConstraint::AnchorData newData = {
+                    .anchorBoneName = B,
+                    .compliancePositive = newCons->compliancePositive * COMPLIANCE_SCALE,
+                    .complianceNegative = newCons->complianceNegative * COMPLIANCE_SCALE,
+                    .marginPositive = newCons->marginPositive * toRadian,
+                    .marginNegative = newCons->marginNegative * toRadian,
+                    .dampingPositive = newCons->dampingPositive,
+                    .dampingNegative = newCons->dampingNegative,
+                };
+                cons.anchors.push_back(std::move(newData));
+                AngularConstraintLogging(file, A, B, anchIdx, *newCons);
+            }
+            else if (elemName == "deform-constraint-default")
+            {
+                DeformConstraintData* currentCons = &defaultDeformConstraint;
+                if (const char* templateName = elem->Attribute("name"); templateName)
+                {
+                    templateDeformConstraint.emplace(templateName, defaultDeformConstraint);
+                    currentCons = &templateDeformConstraint[templateName];
+                }
+                tinyxml2::XMLElement* consElem = elem->FirstChildElement();
+                while (consElem)
+                {
+                    GetDeformConstraint(consElem->Name(), consElem, *currentCons);
+                    consElem = consElem->NextSiblingElement();
+                }
+            }
+            else if (elemName == "deform-constraint")
+            {
+                const char* A = elem->Attribute("A");
+                const char* B = elem->Attribute("B");
+                if (IsEmptyChar(A) || IsEmptyChar(B))
+                {
+                    elem = elem->NextSiblingElement();
+                    continue;
+                }
+                DeformConstraintData defaultConsCopy = defaultDeformConstraint;
+                if (const char* templateName = elem->Attribute("template"); templateName)
+                {
+                    if (auto tit = templateDeformConstraint.find(templateName); tit != templateDeformConstraint.end())
+                    {
+                        defaultConsCopy = tit->second;
+                    }
+                }
+                DeformConstraintData* newCons = &defaultConsCopy;
+                tinyxml2::XMLElement* consElem = elem->FirstChildElement();
+                while (consElem)
+                {
+                    GetDeformConstraint(consElem->Name(), consElem, *newCons);
+                    consElem = consElem->NextSiblingElement();
+                }
+                auto& cons = input.deformConstraints[A];
+                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchors.size());
+                if (anchIdx >= ANCHOR_MAX)
+                {
+                    elem = elem->NextSiblingElement();
+                    continue;
+                }
+                PhysicsInput::DeformConstraint::AnchorData newData = {
+                    .anchorBoneName = B,
+                    .squishWeight = newCons->squishWeight,
+                };
+                cons.anchors.push_back(std::move(newData));
+                DeformConstraintLogging(file, A, B, anchIdx, *newCons);
             }
             elem = elem->NextSiblingElement();
         }
@@ -663,20 +1048,37 @@ namespace MXPBD
             return;
             break;
         };
+        auto ReadSMPMigration = [](const Mus::lString& rootElemName, tinyxml2::XMLElement* rootElem, SMPMigration& mig) {
+            if (rootElemName.empty())
+                return;
+            if (rootElemName == "StiffnessChainCount")
+                rootElem->QueryIntText(&mig.StiffnessChainCount);
+            else if (rootElemName == "StiffnessStartCompliance")
+                rootElem->QueryFloatText(&mig.StiffnessStartCompliance);
+            else if (rootElemName == "StiffnessEndCompliance")
+                rootElem->QueryFloatText(&mig.StiffnessEndCompliance);
+        };
 
         tinyxml2::XMLElement* root = doc.RootElement();
-
-
         tinyxml2::XMLElement* elem = root->FirstChildElement();
         while (elem)
         {
             const Mus::lString elemName = elem->Name();
-            if (elemName == "bone-default")
+            if (elemName == "SMPMigration")
+            {
+                tinyxml2::XMLElement* migElem = elem->FirstChildElement();
+                while (migElem)
+                {
+                    ReadSMPMigration(migElem->Name(), migElem, smpMigration);
+                    migElem = migElem->NextSiblingElement();
+                }
+            }
+            else if (elemName == "bone-default")
             {
                 tinyxml2::XMLElement* boneElem = elem->FirstChildElement();
                 while (boneElem)
                 {
-                    GetBoneData(boneElem->Name(), boneElem, defaultSMPBone);
+                    GetBoneData(boneElem->Name(), boneElem, smpMigration.defaultSMPBone);
                     boneElem = boneElem->NextSiblingElement();
                 }
             }
@@ -685,7 +1087,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    GetLinearConstraint(consElem->Name(), consElem, defaultSMPLinearCons);
+                    GetLinearConstraint(consElem->Name(), consElem, smpMigration.defaultSMPLinearCons);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -694,7 +1096,7 @@ namespace MXPBD
                 tinyxml2::XMLElement* consElem = elem->FirstChildElement();
                 while (consElem)
                 {
-                    GetAngularConstraint(consElem->Name(), consElem, defaultSMPAngularCons);
+                    GetAngularConstraint(consElem->Name(), consElem, smpMigration.defaultSMPAngularCons);
                     consElem = consElem->NextSiblingElement();
                 }
             }
@@ -737,47 +1139,189 @@ namespace MXPBD
         }
         input.infos.push_back({true, file});
 
-        PhysicsInput::Bone defaultBone = defaultSMPBone;
+        PhysicsInput::Bone defaultBone = smpMigration.defaultSMPBone;
         defaultBone.mass = 0.0f;
-        defaultBone.damping = 0.0f;
+        /*defaultBone.dampingPositive = pZero;
+        defaultBone.dampingNegative = pZero;
+        defaultBone.angularDampingPositive = pZero;
+        defaultBone.angularDampingNegative = pZero;
+        defaultBone.limitPositive = pZero;
+        defaultBone.limitNegative = pZero;
+        defaultBone.angularLimitNegative = pZero;
+        defaultBone.angularLimitNegative = pZero;*/
         defaultBone.gravity = 1.0f;
         defaultBone.collisionFriction = 0.0f;
-        ConstraintData defaultLinearConstraint = defaultSMPLinearCons;
-        AngularConstraintData defaultAngularConstraint = defaultSMPAngularCons;
+        std::unordered_map<std::string, PhysicsInput::Bone> templateBoneData;
+        ConstraintData defaultLinearConstraint = smpMigration.defaultSMPLinearCons;
+        AngularConstraintData defaultAngularConstraint = smpMigration.defaultSMPAngularCons;
+        PhysicsInput::Bone defaultConstraintBone;
+        std::unordered_map<std::string, PhysicsInput::Bone> templateConsBone;
 
-        auto constraintAdd = [&](const char* A, const char* B) {
-            if (FloatPrecision < defaultLinearConstraint.complianceSquish + defaultLinearConstraint.complianceStretch)
+        auto BoneRead = [&](tinyxml2::XMLElement* rootElem, PhysicsInput::Bone& boneData) {
+
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "mass")
+                {
+                    elem->QueryFloatText(&boneData.mass);
+                    boneData.mass *= smpMigration.defaultSMPBone.mass;
+                }
+                else if (elemName == "gravity-factor")
+                {
+                    elem->QueryFloatText(&boneData.gravity);
+                    boneData.gravity *= smpMigration.defaultSMPBone.gravity;
+                }
+                else if (elemName == "friction")
+                {
+                    elem->QueryFloatText(&boneData.collisionFriction);
+                    boneData.collisionFriction *= smpMigration.defaultSMPBone.collisionFriction;
+                }
+                else if (elemName == "restitution")
+                {
+                    elem->QueryFloatText(&boneData.collisionRestitution);
+                    boneData.collisionRestitution *= smpMigration.defaultSMPBone.collisionRestitution;
+                }
+                elem = elem->NextSiblingElement();
+            }
+        };
+
+        auto ConsRead = [&](tinyxml2::XMLElement* rootElem, PhysicsInput::Bone& boneData) {
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "linearLowerLimit")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.limitNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.limitNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.limitNegative.z);
+                    boneData.limitNegative = GetABSPoint3(boneData.limitNegative);
+                    boneData.limitNegative.x *= smpMigration.defaultSMPBone.limitNegative.x;
+                    boneData.limitNegative.y *= smpMigration.defaultSMPBone.limitNegative.y;
+                    boneData.limitNegative.z *= smpMigration.defaultSMPBone.limitNegative.z;
+                }
+                else if (elemName == "linearUpperLimit")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.limitPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.limitPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.limitPositive.z);
+                    boneData.limitPositive = GetABSPoint3(boneData.limitPositive);
+                    boneData.limitPositive.x *= smpMigration.defaultSMPBone.limitPositive.x;
+                    boneData.limitPositive.y *= smpMigration.defaultSMPBone.limitPositive.y;
+                    boneData.limitPositive.z *= smpMigration.defaultSMPBone.limitPositive.z;
+                }
+                else if (elemName == "angularLowerLimit")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularLimitNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularLimitNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularLimitNegative.z);
+                    boneData.angularLimitNegative = GetABSPoint3(boneData.angularLimitNegative) * toDegree;
+                    boneData.angularLimitNegative.x *= smpMigration.defaultSMPBone.angularLimitNegative.x;
+                    boneData.angularLimitNegative.y *= smpMigration.defaultSMPBone.angularLimitNegative.y;
+                    boneData.angularLimitNegative.z *= smpMigration.defaultSMPBone.angularLimitNegative.z;
+                }
+                else if (elemName == "angularUpperLimit")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularLimitPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularLimitPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularLimitPositive.z);
+                    boneData.angularLimitPositive = GetABSPoint3(boneData.angularLimitPositive) * toDegree;
+                    boneData.angularLimitPositive.x *= smpMigration.defaultSMPBone.angularLimitPositive.x;
+                    boneData.angularLimitPositive.y *= smpMigration.defaultSMPBone.angularLimitPositive.y;
+                    boneData.angularLimitPositive.z *= smpMigration.defaultSMPBone.angularLimitPositive.z;
+                }
+                else if (elemName == "linearDamping")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.dampingPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.dampingPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.dampingPositive.z);
+                    boneData.dampingPositive = GetABSPoint3(boneData.dampingPositive);
+                    boneData.dampingPositive.x *= smpMigration.defaultSMPBone.dampingPositive.x;
+                    boneData.dampingPositive.y *= smpMigration.defaultSMPBone.dampingPositive.y;
+                    boneData.dampingPositive.z *= smpMigration.defaultSMPBone.dampingPositive.z;
+                    boneData.dampingNegative = boneData.dampingPositive;
+                }
+                else if (elemName == "angularDamping")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularDampingPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularDampingPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularDampingPositive.z);
+                    boneData.angularDampingPositive = GetABSPoint3(boneData.angularDampingPositive);
+                    boneData.angularDampingPositive.x *= smpMigration.defaultSMPBone.angularDampingPositive.x;
+                    boneData.angularDampingPositive.y *= smpMigration.defaultSMPBone.angularDampingPositive.y;
+                    boneData.angularDampingPositive.z *= smpMigration.defaultSMPBone.angularDampingPositive.z;
+                    boneData.angularDampingNegative = boneData.angularDampingPositive;
+                }
+                elem = elem->NextSiblingElement();
+            }
+        };
+
+        auto AssignBoneCons = [&](const char* A, const PhysicsInput::Bone& newConsBone) {
+            auto it = input.bones.find(A);
+            if (it == input.bones.end())
+                return;
+            it->second.dampingPositive = newConsBone.dampingPositive;
+            it->second.dampingNegative = newConsBone.dampingNegative;
+            it->second.angularDampingPositive = newConsBone.angularDampingPositive;
+            it->second.angularDampingNegative = newConsBone.angularDampingNegative;
+            it->second.limitPositive = newConsBone.limitPositive;
+            it->second.limitNegative = newConsBone.limitNegative;
+            it->second.angularLimitPositive = newConsBone.angularLimitPositive;
+            it->second.angularLimitNegative = newConsBone.angularLimitNegative;
+        };
+
+        auto ConstraintAdd = [&](const char* A, const char* B) {
+            if (Epsilon < defaultLinearConstraint.complianceSquish + defaultLinearConstraint.complianceStretch)
             {
                 auto& cons = input.constraints[A];
-                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchorBoneNames.size());
+                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchors.size());
                 if (anchIdx < ANCHOR_MAX)
                 {
                     ConstraintData newCons = defaultLinearConstraint;
-                    cons.anchorBoneNames.push_back(B);
-                    cons.complianceSquish.push_back(newCons.complianceSquish * COMPLIANCE_SCALE);
-                    cons.complianceStretch.push_back(newCons.complianceStretch * COMPLIANCE_SCALE);
-                    cons.squishLimit.push_back(newCons.squishLimit);
-                    cons.stretchLimit.push_back(newCons.stretchLimit);
-                    cons.angularLimit.push_back(newCons.angularLimit);
-                    cons.squishDamping.push_back(newCons.squishDamping);
-                    cons.stretchDamping.push_back(newCons.stretchDamping);
+                    newCons.anchorBoneName = B;
+                    newCons.complianceSquish *= COMPLIANCE_SCALE;
+                    newCons.complianceStretch *= COMPLIANCE_SCALE;
+                    cons.anchors.push_back(newCons);
                     LinearConstraintLogging(file, A, B, anchIdx, newCons);
                 }
             }
-            if (FloatPrecision < defaultAngularConstraint.compliance)
+            if (!IsAllZero(defaultAngularConstraint.compliancePositive) && !IsAllZero(defaultAngularConstraint.complianceNegative))
             {
                 auto& cons = input.angularConstraints[A];
-                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchorBoneNames.size());
+                std::uint8_t anchIdx = static_cast<std::uint8_t>(cons.anchors.size());
                 if (anchIdx < ANCHOR_MAX)
                 {
                     AngularConstraintData newCons = defaultAngularConstraint;
-                    cons.anchorBoneNames.push_back(B);
-                    cons.compliance.push_back(newCons.compliance * COMPLIANCE_SCALE);
-                    cons.limit.push_back(newCons.limit);
-                    cons.damping.push_back(newCons.damping);
+                    newCons.anchorBoneName = B;
+                    newCons.compliancePositive *= COMPLIANCE_SCALE;
+                    newCons.complianceNegative *= COMPLIANCE_SCALE;
+                    newCons.marginPositive *= toRadian;
+                    newCons.marginNegative *= toRadian;
+                    cons.anchors.push_back(newCons);
                     AngularConstraintLogging(file, A, B, anchIdx, newCons);
                 }
             }
+        };
+
+        auto SMPBoneLogging = [](const std::string& file, std::string_view name, const PhysicsInput::Bone& bone) {
+            logger::debug("{} : bone physics {} - mass {} / inertia neg{} pos{} / angularInertia neg{} pos{} / inertiaCorrection neg{} pos{} / angularBlendFactor {} / gravity {} / windFactor {} / linearRotTorque x{} y{}, z{}",
+                          file, name, bone.mass, bone.inertiaNegative, bone.inertiaPositive, bone.angularInertiaNegative, bone.angularInertiaPositive, bone.inertiaCorrectionNegative, bone.inertiaCorrectionPositive, bone.angularBlendFactor, bone.gravity, bone.windFactor, bone.linearRotTorque[0], bone.linearRotTorque[1], bone.linearRotTorque[2]);
+            logger::debug("{} : bone offset {} - pos {}{}{}{}",
+                          file, name, bone.offset, bone.isParticle ? " /" : "", bone.isParticle ? " target " : "", bone.isParticle ? bone.parentBoneName : "");
+            logger::debug("{} : bone animDrive {} - linear compliance {} / angular compliance {}",
+                          file, name, bone.animDriveCompliance, bone.animDriveAngularCompliance);
+            logger::debug("{} : bone collider {} - margin {} / friction {} / softness {} / restitution {} / layerGroup {:x} / collideLayer {:x}",
+                          file, name, bone.collisionMargin, bone.collisionFriction, bone.collisionCompliance, bone.collisionRestitution, bone.collisionLayerGroup, bone.collisionCollideLayer);
+            if (bone.enableDynamicVolume)
+                logger::debug("{} : bone dynamic volume {} - volume min({}) max({}) / physicsScale min({}) max({}) / clampPhysicsScale {}",
+                              file, name, bone.volumeMin, bone.volumeMax, bone.physicsScaleMin, bone.physicsScaleMax, bone.clampPhysicsScale);
+        };
+
+        auto SMPConsBoneLogging = [](const std::string& file, std::string_view name, const PhysicsInput::Bone& bone) {
+            logger::debug("{} : bone physics {} - linear damping neg{} pos{} / angular damping neg{} pos{} / linear limit neg{} pos{} / angular limit neg{} pos{}",
+                          file, name, bone.dampingNegative, bone.dampingPositive, bone.angularDampingNegative, bone.angularDampingPositive, bone.limitNegative, bone.limitPositive, bone.angularLimitNegative, bone.angularLimitPositive);
         };
 
         tinyxml2::XMLElement* elem = root->FirstChildElement();
@@ -786,26 +1330,13 @@ namespace MXPBD
             const Mus::lString elemName = elem->Name();
             if (elemName == "bone-default")
             {
-                if (tinyxml2::XMLElement* massElem = elem->FirstChildElement("mass"); massElem)
+                PhysicsInput::Bone* currentDefaultBone = &defaultBone;
+                if (const char* templateName = elem->Attribute("name"); templateName)
                 {
-                    massElem->QueryFloatText(&defaultBone.mass);
-                    defaultBone.mass *= defaultSMPBone.mass;
+                    templateBoneData.emplace(templateName, defaultBone);
+                    currentDefaultBone = &templateBoneData[templateName];
                 }
-                if (tinyxml2::XMLElement* dampingElem = elem->FirstChildElement("linearDamping"); dampingElem)
-                {
-                    dampingElem->QueryFloatText(&defaultBone.damping);
-                    defaultBone.damping *= defaultSMPBone.damping;
-                }
-                if (tinyxml2::XMLElement* gravityElem = elem->FirstChildElement("gravity-factor"); gravityElem)
-                {
-                    gravityElem->QueryFloatText(&defaultBone.gravity);
-                    defaultBone.gravity *= defaultSMPBone.gravity;
-                }
-                if (tinyxml2::XMLElement* frictionElem = elem->FirstChildElement("friction"); frictionElem)
-                {
-                    frictionElem->QueryFloatText(&defaultBone.collisionFriction);
-                    defaultBone.collisionFriction *= defaultSMPBone.collisionFriction;
-                }
+                BoneRead(elem, *currentDefaultBone);
             }
             else if (elemName == "bone")
             {
@@ -815,16 +1346,33 @@ namespace MXPBD
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                PhysicsInput::Bone newBone = defaultBone;
-                BoneLogging(file, boneName, newBone);
-                newBone.restPoseCompliance *= COMPLIANCE_SCALE;
-                newBone.restPoseAngularLimit = DirectX::XMConvertToRadians(newBone.restPoseAngularLimit);
-                newBone.restPoseAngularCompliance *= COMPLIANCE_SCALE;
-                newBone.collisionCompliance *= COMPLIANCE_SCALE;
-                input.bones.emplace(boneName, newBone);
+                PhysicsInput::Bone defaultBoneCopy = defaultBone;
+                if (const char* templateName = elem->Attribute("template"); templateName)
+                {
+                    if (auto tit = templateBoneData.find(templateName); tit != templateBoneData.end())
+                    {
+                        defaultBoneCopy = tit->second;
+                    }
+                }
+                PhysicsInput::Bone* newBone = &defaultBoneCopy;
+                BoneRead(elem, *newBone);
+                SMPBoneLogging(file, boneName, *newBone);
+                newBone->animDriveCompliance *= COMPLIANCE_SCALE;
+                newBone->animDriveAngularCompliance *= COMPLIANCE_SCALE;
+                newBone->collisionCompliance *= COMPLIANCE_SCALE;
+                newBone->angularLimitPositive *= toRadian;
+                newBone->angularLimitNegative *= toRadian;
+                input.bones.emplace(boneName, *newBone);
             }
             else if (elemName == "generic-constraint-default")
             {
+                PhysicsInput::Bone* currentConstraintBone = &defaultConstraintBone;
+                if (const char* templateName = elem->Attribute("name"); templateName)
+                {
+                    templateConsBone.emplace(templateName, defaultConstraintBone);
+                    currentConstraintBone = &templateConsBone[templateName];
+                }
+                //ConsRead(elem, *currentConstraintBone);
             }
             else if (elemName == "constraint-group")
             {
@@ -841,7 +1389,19 @@ namespace MXPBD
                             consElem = consElem->NextSiblingElement();
                             continue;
                         }
-                        constraintAdd(A, B);
+                        PhysicsInput::Bone defaultConsCopy = defaultConstraintBone;
+                        if (const char* templateName = elem->Attribute("template"); templateName)
+                        {
+                            if (auto tit = templateConsBone.find(templateName); tit != templateConsBone.end())
+                            {
+                                defaultConsCopy = tit->second;
+                            }
+                        }
+                        PhysicsInput::Bone* newConsBone = &defaultConsCopy;
+                        //ConsRead(elem, *newConsBone);
+                        //AssignBoneCons(A, *newConsBone);
+                        SMPConsBoneLogging(file, A, *newConsBone);
+                        ConstraintAdd(A, B);
                     }
                     consElem = consElem->NextSiblingElement();
                 }
@@ -855,73 +1415,89 @@ namespace MXPBD
                     elem = elem->NextSiblingElement();
                     continue;
                 }
-                constraintAdd(A, B);
+                PhysicsInput::Bone defaultConsCopy = defaultConstraintBone;
+                if (const char* templateName = elem->Attribute("template"); templateName)
+                {
+                    if (auto tit = templateConsBone.find(templateName); tit != templateConsBone.end())
+                    {
+                        defaultConsCopy = tit->second;
+                    }
+                }
+                PhysicsInput::Bone* newConsBone = &defaultConsCopy;
+                //ConsRead(elem, *newConsBone);
+                //AssignBoneCons(A, *newConsBone);
+                SMPConsBoneLogging(file, A, *newConsBone);
+                ConstraintAdd(A, B);
             }
             elem = elem->NextSiblingElement();
         }
 
         std::unordered_set<std::string> visited;
-        auto AddStiffness = [&](auto&& self, const std::string& boneName) -> float {
+        auto AddStiffness = [&](auto&& self, const std::string& boneName) -> std::int32_t {
             if (!visited.insert(boneName).second)
-                return 0.0001f;
+                return -1;
 
             auto it = input.constraints.find(boneName);
-            if (it == input.constraints.end() || it->second.anchorBoneNames.empty())
+            if (it == input.constraints.end() || it->second.anchors.empty())
             {
                 visited.erase(boneName);
-                return 0.0f;
+                return 0;
             }
 
             auto& cons = it->second;
-            for (std::uint32_t anchorIdx = 0; anchorIdx < cons.anchorBoneNames.size(); ++anchorIdx)
+            std::int32_t parentDepth = -1;
+            for (const auto& anchor : cons.anchors)
             {
-                if (cons.anchorBoneNames[anchorIdx] == "__ORIGINAL__")
+                if (anchor.anchorBoneName != "__ORIGINAL__" && anchor.anchorBoneName != "__PARENT__" && anchor.anchorBoneName != "__VOLUME__")
                 {
-                    visited.erase(boneName);
-                    return cons.complianceStretch[anchorIdx];
-                }
-            }
-
-            float parentCompliance = 0.0f;
-            for (const std::string& anchorName : cons.anchorBoneNames)
-            {
-                if (anchorName != "__ORIGINAL__" && anchorName != "__PARENT__" && anchorName != "__VOLUME__")
-                {
-                    parentCompliance = self(self, anchorName);
+                    parentDepth = self(self, anchor.anchorBoneName);
                     break;
                 }
             }
 
-            if (parentCompliance >= 0.0099f)
+            std::int32_t currentDepth = (parentDepth == -1) ? -1 : (parentDepth + 1);
+            for (std::uint32_t anchorIdx = 0; anchorIdx < cons.anchors.size(); ++anchorIdx)
             {
-                visited.erase(boneName);
-                return parentCompliance;
+                if (cons.anchors[anchorIdx].anchorBoneName == "__ORIGINAL__")
+                {
+                    visited.erase(boneName);
+                    return currentDepth;
+                }
             }
 
-            float currentCompliance = 0.0001f;
-            if (parentCompliance > 0.00001f)
-                currentCompliance = parentCompliance * 10.0f;
-            std::uint32_t anchIdx = static_cast<std::uint32_t>(cons.anchorBoneNames.size());
-            if (anchIdx < ANCHOR_MAX)
+            if (1 <= currentDepth && currentDepth <= smpMigration.StiffnessChainCount)
             {
-                cons.anchorBoneNames.push_back("__ORIGINAL__");
-                cons.complianceSquish.push_back(0.001f);
-                cons.complianceStretch.push_back(currentCompliance);
-                cons.squishLimit.push_back(0);
-                cons.stretchLimit.push_back(0);
-                cons.angularLimit.push_back(0);
-                cons.squishDamping.push_back(0);
-                cons.stretchDamping.push_back(0);
-                logger::debug("{} : bone add anchor {}({}|{}) - complianceStretch {}", file, boneName, "__ORIGINAL__", anchIdx, currentCompliance);
+                float t = 0.0f;
+                if (smpMigration.StiffnessChainCount > 1)
+                    t = static_cast<float>(currentDepth - 1) / static_cast<float>(smpMigration.StiffnessChainCount - 1);
+                float currentCompliance = std::lerp(smpMigration.StiffnessStartCompliance, smpMigration.StiffnessEndCompliance, t);
+                std::uint32_t anchIdx = static_cast<std::uint32_t>(cons.anchors.size());
+                if (anchIdx < ANCHOR_MAX)
+                {
+                    ConstraintData newConsData = {
+                        .anchorBoneName = "__ORIGINAL__",
+                        .complianceSquish = 0.001f,
+                        .complianceStretch = currentCompliance * COMPLIANCE_SCALE,
+                        .squishMargin = 0.0f,
+                        .stretchMargin = 0.0f,
+                        .squishDamping = 0.0f,
+                        .stretchDamping = 0.0f,
+                    };
+                    cons.anchors.push_back(std::move(newConsData));
+                    logger::debug("{} : bone add anchor {}({}|{}) - complianceStretch {}", file, boneName, "__ORIGINAL__", anchIdx, currentCompliance);
+                }
             }
 
             visited.erase(boneName);
-            return currentCompliance;
+            return currentDepth;
         };
 
-        for (auto& cons : input.constraints)
+        if (smpMigration.StiffnessChainCount > 0)
         {
-            AddStiffness(AddStiffness, cons.first);
+            for (auto& cons : input.constraints)
+            {
+                AddStiffness(AddStiffness, cons.first);
+            }
         }
         return true;
     }
@@ -952,13 +1528,13 @@ namespace MXPBD
         }
         for (auto& cons : input.constraints)
         {
-            for (auto& anch : cons.second.anchorBoneNames)
+            for (auto& anch : cons.second.anchors)
             {
-                auto it = map.find(anch);
+                auto it = map.find(anch.anchorBoneName);
                 if (it != map.end())
                 {
-                    logger::debug("renamed anchor {} => {} for constraint {}", anch, it->second, cons.first);
-                    anch = it->second;
+                    logger::debug("renamed anchor {} => {} for constraint {}", anch.anchorBoneName, it->second, cons.first);
+                    anch.anchorBoneName = it->second;
                 }
             }
             auto it = map.find(cons.first);
@@ -972,13 +1548,13 @@ namespace MXPBD
         }
         for (auto& cons : input.angularConstraints)
         {
-            for (auto& anch : cons.second.anchorBoneNames)
+            for (auto& anch : cons.second.anchors)
             {
-                auto it = map.find(anch);
+                auto it = map.find(anch.anchorBoneName);
                 if (it != map.end())
                 {
-                    logger::debug("renamed anchor {} => {} for constraint {}", anch, it->second, cons.first);
-                    anch = it->second;
+                    logger::debug("renamed anchor {} => {} for constraint {}", anch.anchorBoneName, it->second, cons.first);
+                    anch.anchorBoneName = it->second;
                 }
             }
             auto it = map.find(cons.first);
@@ -989,6 +1565,26 @@ namespace MXPBD
             }
             else
                 fixedInput.angularConstraints[cons.first] = std::move(cons.second);
+        }
+        for (auto& cons : input.deformConstraints)
+        {
+            for (auto& anch : cons.second.anchors)
+            {
+                auto it = map.find(anch.anchorBoneName);
+                if (it != map.end())
+                {
+                    logger::debug("renamed anchor {} => {} for constraint {}", anch.anchorBoneName, it->second, cons.first);
+                    anch.anchorBoneName = it->second;
+                }
+            }
+            auto it = map.find(cons.first);
+            if (it != map.end())
+            {
+                logger::debug("renamed deform constraint {} => {}", cons.first, it->second);
+                fixedInput.deformConstraints[it->second] = std::move(cons.second);
+            }
+            else
+                fixedInput.deformConstraints[cons.first] = std::move(cons.second);
         }
         input = std::move(fixedInput);
     }
@@ -1006,18 +1602,114 @@ namespace MXPBD
                 const Mus::lString elemName = elem->Name();
                 if (elemName == "mass")
                     elem->QueryFloatText(&boneData.mass);
-                else if (elemName == "damping")
-                    elem->QueryFloatText(&boneData.damping);
-                else if (elemName == "restitution")
-                    elem->QueryFloatText(&boneData.restitution);
-                else if (elemName == "inertiaScale")
-                    elem->QueryFloatText(&boneData.inertiaScale);
-                else if (elemName == "rotationBlendFactor")
-                    elem->QueryFloatText(&boneData.rotationBlendFactor);
+                else if (elemName == "linearDampingPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.dampingPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.dampingPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.dampingPositive.z);
+                    boneData.dampingPositive = GetABSPoint3(boneData.dampingPositive);
+                }
+                else if (elemName == "linearDampingNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.dampingNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.dampingNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.dampingNegative.z);
+                    boneData.dampingNegative = GetABSPoint3(boneData.dampingNegative);
+                }
+                else if (elemName == "angularDampingPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularDampingPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularDampingPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularDampingPositive.z);
+                    boneData.angularDampingPositive = GetABSPoint3(boneData.angularDampingPositive);
+                }
+                else if (elemName == "angularDampingNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularDampingNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularDampingNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularDampingNegative.z);
+                    boneData.angularDampingNegative = GetABSPoint3(boneData.angularDampingNegative);
+                }
+                else if (elemName == "linearInertiaPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.inertiaPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.inertiaPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.inertiaPositive.z);
+                    boneData.inertiaPositive = GetABSPoint3(boneData.inertiaPositive);
+                }
+                else if (elemName == "linearInertiaNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.inertiaNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.inertiaNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.inertiaNegative.z);
+                    boneData.inertiaNegative = GetABSPoint3(boneData.inertiaNegative);
+                }
+                else if (elemName == "angularInertiaPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularInertiaPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularInertiaPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularInertiaPositive.z);
+                    boneData.angularInertiaPositive = GetABSPoint3(boneData.angularInertiaPositive);
+                }
+                else if (elemName == "angularInertiaNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularInertiaNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularInertiaNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularInertiaNegative.z);
+                    boneData.angularInertiaNegative = GetABSPoint3(boneData.angularInertiaNegative);
+                }
+                else if (elemName == "linearInertiaCorrectionPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.inertiaCorrectionPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.inertiaCorrectionPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.inertiaCorrectionPositive.z);
+                    boneData.inertiaCorrectionPositive = GetABSPoint3(boneData.inertiaCorrectionPositive);
+                }
+                else if (elemName == "linearInertiaCorrectionNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.inertiaCorrectionNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.inertiaCorrectionNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.inertiaCorrectionNegative.z);
+                    boneData.inertiaCorrectionNegative = GetABSPoint3(boneData.inertiaCorrectionNegative);
+                }
+                else if (elemName == "linearlimitPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.limitPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.limitPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.limitPositive.z);
+                    boneData.limitPositive = GetABSPoint3(boneData.limitPositive);
+                }
+                else if (elemName == "linearlimitNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.limitNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.limitNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.limitNegative.z);
+                    boneData.limitNegative = GetABSPoint3(boneData.limitNegative);
+                }
+                else if (elemName == "angularLimitPositive")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularLimitPositive.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularLimitPositive.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularLimitPositive.z);
+                    boneData.angularLimitPositive = GetABSPoint3(boneData.angularLimitPositive);
+                }
+                else if (elemName == "angularLimitNegative")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.angularLimitNegative.x);
+                    elem->QueryFloatAttribute("y", &boneData.angularLimitNegative.y);
+                    elem->QueryFloatAttribute("z", &boneData.angularLimitNegative.z);
+                    boneData.angularLimitNegative = GetABSPoint3(boneData.angularLimitNegative);
+                }
                 else if (elemName == "gravity")
                     elem->QueryFloatText(&boneData.gravity);
+                else if (elemName == "angularBlendFactor")
+                    elem->QueryFloatText(&boneData.angularBlendFactor);
                 else if (elemName == "windFactor")
-                    elem->QueryFloatText(&boneData.windFactor);
+                {
+                    elem->QueryFloatAttribute("x", &boneData.windFactor.x);
+                    elem->QueryFloatAttribute("y", &boneData.windFactor.y);
+                    elem->QueryFloatAttribute("z", &boneData.windFactor.z);
+                }
                 else if (elemName == "linearXRotTorque")
                 {
                     elem->QueryFloatAttribute("x", &boneData.linearRotTorque[0].x);
@@ -1039,20 +1731,24 @@ namespace MXPBD
                 elem = elem->NextSiblingElement();
             }
         }
-        else if (rootElemName == "restPose")
+        else if (rootElemName == "animDrive")
         {
             tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
             while (elem)
             {
                 const Mus::lString elemName = elem->Name();
-                if (elemName == "restPoseLimit")
-                    elem->QueryFloatText(&boneData.restPoseLimit);
-                else if (elemName == "restPoseCompliance")
-                    elem->QueryFloatText(&boneData.restPoseCompliance);
-                else if (elemName == "restPoseAngularLimit")
-                    elem->QueryFloatText(&boneData.restPoseAngularLimit);
-                else if (elemName == "restPoseAngularCompliance")
-                    elem->QueryFloatText(&boneData.restPoseAngularCompliance);
+                if (elemName == "linearCompliance")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.animDriveCompliance.x);
+                    elem->QueryFloatAttribute("y", &boneData.animDriveCompliance.y);
+                    elem->QueryFloatAttribute("z", &boneData.animDriveCompliance.z);
+                }
+                else if (elemName == "angularCompliance")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.animDriveAngularCompliance.x);
+                    elem->QueryFloatAttribute("y", &boneData.animDriveAngularCompliance.y);
+                    elem->QueryFloatAttribute("z", &boneData.animDriveAngularCompliance.z);
+                }
                 elem = elem->NextSiblingElement();
             }
         }
@@ -1078,14 +1774,112 @@ namespace MXPBD
                     elem->QueryFloatText(&boneData.collisionMargin);
                 else if (elemName == "friction")
                     elem->QueryFloatText(&boneData.collisionFriction);
-                else if (elemName == "rotationBias")
-                    elem->QueryFloatText(&boneData.collisionRotationBias);
                 else if (elemName == "softness")
                     elem->QueryFloatText(&boneData.collisionCompliance);
+                else if (elemName == "restitution")
+                    elem->QueryFloatText(&boneData.collisionRestitution);
                 else if (elemName == "layerGroup")
                     boneData.collisionLayerGroup |= GetStringAsBitMask(elem->GetText());
                 else if (elemName == "ignoreLayer")
                     boneData.collisionCollideLayer &= ~GetStringAsBitMask(elem->GetText());
+                else if (elemName == "colliderType")
+                    boneData.colliderType = GetColliderType(elem->GetText());
+                elem = elem->NextSiblingElement();
+            }
+        }
+        else if (rootElemName == "deformation")
+        {
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "limitMin")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformMin.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformMin.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformMin.z);
+                }
+                else if (elemName == "limitMax")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformMax.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformMax.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformMax.z);
+                }
+                else if (elemName == "volumePreservation")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformVolumePreservation.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformVolumePreservation.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformVolumePreservation.z);
+                }
+                else if (elemName == "squishSensitivity")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformSquishSensitivity.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformSquishSensitivity.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformSquishSensitivity.z);
+                }
+                else if (elemName == "stretchSensitivity")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformStretchSensitivity.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformStretchSensitivity.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformStretchSensitivity.z);
+                }
+                else if (elemName == "bulgeSensitivity")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformBulgeSensitivity.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformBulgeSensitivity.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformBulgeSensitivity.z);
+                }
+                else if (elemName == "squishStiffness")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformSquishStiffness.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformSquishStiffness.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformSquishStiffness.z);
+                }
+                else if (elemName == "stretchStiffness")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformStretchStiffness.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformStretchStiffness.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformStretchStiffness.z);
+                }
+                else if (elemName == "squishDamping")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformSquishDamping.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformSquishDamping.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformSquishDamping.z);
+                }
+                else if (elemName == "stretchDamping")
+                {
+                    elem->QueryFloatAttribute("x", &boneData.deformStretchDamping.x);
+                    elem->QueryFloatAttribute("y", &boneData.deformStretchDamping.y);
+                    elem->QueryFloatAttribute("z", &boneData.deformStretchDamping.z);
+                }
+                elem = elem->NextSiblingElement();
+            }
+        }
+        else if (rootElemName == "dynamicVolume")
+        {
+            tinyxml2::XMLElement* elem = rootElem->FirstChildElement();
+            while (elem)
+            {
+                const Mus::lString elemName = elem->Name();
+                if (elemName == "enable")
+                {
+                    elem->QueryBoolText(&boneData.enableDynamicVolume);
+                }
+                else if (elemName == "volume")
+                {
+                    elem->QueryFloatAttribute("min", &boneData.volumeMin);
+                    elem->QueryFloatAttribute("max", &boneData.volumeMax);
+                }
+                else if (elemName == "physicsScale")
+                {
+                    elem->QueryFloatAttribute("min", &boneData.physicsScaleMin);
+                    elem->QueryFloatAttribute("max", &boneData.physicsScaleMax);
+                }
+                else if (elemName == "clampPhysicsScale")
+                {
+                    elem->QueryBoolText(&boneData.clampPhysicsScale);
+                }
                 elem = elem->NextSiblingElement();
             }
         }
@@ -1100,11 +1894,10 @@ namespace MXPBD
             elem->QueryFloatAttribute("squish", &consData.complianceSquish);
             elem->QueryFloatAttribute("stretch", &consData.complianceStretch);
         }
-        else if (rootElemName == "limit")
+        else if (rootElemName == "margin")
         {
-            elem->QueryFloatAttribute("squish", &consData.squishLimit);
-            elem->QueryFloatAttribute("stretch", &consData.stretchLimit);
-            elem->QueryFloatAttribute("angular", &consData.angularLimit);
+            elem->QueryFloatAttribute("squish", &consData.squishMargin);
+            elem->QueryFloatAttribute("stretch", &consData.stretchMargin);
         }
         else if (rootElemName == "damping")
         {
@@ -1117,35 +1910,108 @@ namespace MXPBD
     {
         if (rootElemName.empty())
             return;
-        if (rootElemName == "compliance")
+        if (rootElemName == "compliancePositive")
         {
-            elem->QueryFloatAttribute("value", &consData.compliance);
+            elem->QueryFloatAttribute("x", &consData.compliancePositive.x);
+            elem->QueryFloatAttribute("y", &consData.compliancePositive.y);
+            elem->QueryFloatAttribute("z", &consData.compliancePositive.z);
+            consData.compliancePositive = GetABSPoint3(consData.compliancePositive);
         }
-        else if (rootElemName == "limit")
+        else if (rootElemName == "complianceNegative")
         {
-            elem->QueryFloatAttribute("value", &consData.limit);
+            elem->QueryFloatAttribute("x", &consData.complianceNegative.x);
+            elem->QueryFloatAttribute("y", &consData.complianceNegative.y);
+            elem->QueryFloatAttribute("z", &consData.complianceNegative.z);
+            consData.complianceNegative = GetABSPoint3(consData.complianceNegative);
         }
-        else if (rootElemName == "damping")
+        else if (rootElemName == "marginPositive")
         {
-            elem->QueryFloatAttribute("value", &consData.damping);
+            elem->QueryFloatAttribute("x", &consData.marginPositive.x);
+            elem->QueryFloatAttribute("y", &consData.marginPositive.y);
+            elem->QueryFloatAttribute("z", &consData.marginPositive.z);
+            consData.marginPositive = GetABSPoint3(consData.marginPositive);
+        }
+        else if (rootElemName == "marginNegative")
+        {
+            elem->QueryFloatAttribute("x", &consData.marginNegative.x);
+            elem->QueryFloatAttribute("y", &consData.marginNegative.y);
+            elem->QueryFloatAttribute("z", &consData.marginNegative.z);
+            consData.marginNegative = GetABSPoint3(consData.marginNegative);
+        }
+        else if (rootElemName == "dampingPositive")
+        {
+            elem->QueryFloatAttribute("x", &consData.dampingPositive.x);
+            elem->QueryFloatAttribute("y", &consData.dampingPositive.y);
+            elem->QueryFloatAttribute("z", &consData.dampingPositive.z);
+            consData.dampingPositive = GetABSPoint3(consData.dampingPositive);
+        }
+        else if (rootElemName == "dampingNegative")
+        {
+            elem->QueryFloatAttribute("x", &consData.dampingNegative.x);
+            elem->QueryFloatAttribute("y", &consData.dampingNegative.y);
+            elem->QueryFloatAttribute("z", &consData.dampingNegative.z);
+            consData.dampingNegative = GetABSPoint3(consData.dampingNegative);
+        }
+    };
+
+    void PhysicsConfigReader::GetDeformConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, DeformConstraintData& consData) const
+    {
+        if (rootElemName.empty())
+            return;
+        if (rootElemName == "squishWeight")
+        {
+            elem->QueryFloatAttribute("x", &consData.squishWeight.x);
+            elem->QueryFloatAttribute("y", &consData.squishWeight.y);
+            elem->QueryFloatAttribute("z", &consData.squishWeight.z);
+        }
+        else if (rootElemName == "stretchWeight")
+        {
+            elem->QueryFloatAttribute("x", &consData.stretchWeight.x);
+            elem->QueryFloatAttribute("y", &consData.stretchWeight.y);
+            elem->QueryFloatAttribute("z", &consData.stretchWeight.z);
+        }
+        else if (rootElemName == "bulgeWeight")
+        {
+            elem->QueryFloatAttribute("x", &consData.bulgeWeight.x);
+            elem->QueryFloatAttribute("y", &consData.bulgeWeight.y);
+            elem->QueryFloatAttribute("z", &consData.bulgeWeight.z);
         }
     };
 
     void PhysicsConfigReader::BoneLogging(const std::string& file, std::string_view name, const PhysicsInput::Bone& bone) const
     {
-        logger::debug("{} : bone physics {} - mass {} / damping {} / inertiaScale {} / restitution {} / rotationBlendFactor {} / gravity {} / windFactor {} / linearRotTorque x{} y{}, z{}", file, name, bone.mass, bone.damping, bone.inertiaScale, bone.restitution, bone.rotationBlendFactor, bone.gravity, bone.windFactor, bone.linearRotTorque[0], bone.linearRotTorque[1], bone.linearRotTorque[2]);
-        logger::debug("{} : bone offset {} - pos {}{}{}{}", file, name, bone.offset, bone.isParticle ? " /" : "", bone.isParticle ? " target " : "", bone.isParticle ? bone.parentBoneName : "");
-        logger::debug("{} : bone restPose {} - limit {} / compliance {} / angularLimit {} / angularCompliance {}", file, name, bone.restPoseLimit, bone.restPoseCompliance, bone.restPoseAngularLimit, bone.restPoseAngularCompliance);
-        logger::debug("{} : bone collider {} - margin {} / friction {} / rotationBias {} / softness {} / layerGroup {:x} / collideLayer {:x}", file, name, bone.collisionMargin, bone.collisionFriction, bone.collisionRotationBias, bone.collisionCompliance, bone.collisionLayerGroup, bone.collisionCollideLayer);             
+        logger::debug("{} : bone physics {} - mass {} / inertia neg{} pos{} / angularInertia neg{} pos{} / inertiaCorrection neg{} pos{} / angularBlendFactor {} / gravity {} / windFactor {} / linearRotTorque x{} y{}, z{}", 
+                      file, name, bone.mass, bone.inertiaNegative, bone.inertiaPositive, bone.angularInertiaNegative, bone.angularInertiaPositive, bone.inertiaCorrectionNegative, bone.inertiaCorrectionPositive, bone.angularBlendFactor, bone.gravity, bone.windFactor, bone.linearRotTorque[0], bone.linearRotTorque[1], bone.linearRotTorque[2]);
+        logger::debug("{} : bone physics {} - linear damping neg{} pos{} / angular damping neg{} pos{} / linear limit neg{} pos{} / angular limit neg{} pos{}", 
+                      file, name, bone.dampingNegative, bone.dampingPositive, bone.angularDampingNegative, bone.angularDampingPositive, bone.limitNegative, bone.limitPositive, bone.angularLimitNegative, bone.angularLimitPositive);
+        logger::debug("{} : bone offset {} - pos {}{}{}{}", 
+                      file, name, bone.offset, bone.isParticle ? " /" : "", bone.isParticle ? " target " : "", bone.isParticle ? bone.parentBoneName : "");
+        logger::debug("{} : bone animDrive {} - linear compliance {} / angular compliance {}", 
+                      file, name, bone.animDriveCompliance, bone.animDriveAngularCompliance);
+        logger::debug("{} : bone collider {} - margin {} / friction {} / softness {} / restitution {} / layerGroup {:x} / collideLayer {:x}", 
+                      file, name, bone.collisionMargin, bone.collisionFriction, bone.collisionCompliance, bone.collisionRestitution, bone.collisionLayerGroup, bone.collisionCollideLayer);  
+        logger::debug("{} : bone deform {} - limit min{} max{} / volume preservation {} / sensitivity squish{} stretch{} bulge{} / stiffness squish{} stretch{} / damping squish{} stretch{}", 
+                      file, name, bone.deformMin, bone.deformMax, bone.deformVolumePreservation, bone.deformSquishSensitivity, bone.deformStretchSensitivity, bone.deformBulgeSensitivity, bone.deformSquishStiffness, bone.deformStretchStiffness, bone.deformSquishDamping, bone.deformStretchDamping);   
+        if (bone.enableDynamicVolume)
+            logger::debug("{} : bone dynamic volume {} - volume min({}) max({}) / physicsScale min({}) max({}) / clampPhysicsScale {}", 
+                          file, name, bone.volumeMin, bone.volumeMax, bone.physicsScaleMin, bone.physicsScaleMax, bone.clampPhysicsScale);
     }
 
     void PhysicsConfigReader::LinearConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const ConstraintData& cons) const
     {
-        logger::debug("{} : bone add anchor {}({}|{}) - complianceSquish {} / complianceStretch {} / squishLimit {} / stretchLimit {} / angularLimit {} / squishDamping {} / stretchDamping {}", file, A, B, anchIdx, cons.complianceSquish, cons.complianceStretch, cons.squishLimit, cons.stretchLimit, cons.angularLimit, cons.squishDamping, cons.stretchDamping);         
+        logger::debug("{} : bone add anchor {}({}|{}) - compliance squish({}) stretch({}) / limit squish({}) stretch({}) / damping squish({}) stretch({})", 
+                      file, A, B, anchIdx, cons.complianceSquish, cons.complianceStretch, cons.squishMargin, cons.stretchMargin, cons.squishDamping, cons.stretchDamping);         
     }
 
     void PhysicsConfigReader::AngularConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const AngularConstraintData& cons) const
     {
-        logger::debug("{} : bone add anchor {}({}|{}) - compliance {} / limit {} / damping {}", file, A, B, anchIdx, cons.compliance, cons.limit, cons.damping);     
+        logger::debug("{} : bone add anchor {}({}|{}) - compliance neg{} pos{} / limit neg{} pos{} / damping neg{} pos{}", 
+                      file, A, B, anchIdx, cons.complianceNegative, cons.compliancePositive, cons.marginNegative, cons.marginPositive, cons.dampingNegative, cons.dampingPositive);     
+    }
+
+    void PhysicsConfigReader::DeformConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const DeformConstraintData& cons) const
+    {
+        logger::debug("{} : bone add anchor {}({}|{}) - weight squish{} stretch{} bulge{}", 
+                      file, A, B, anchIdx, cons.squishWeight, cons.stretchWeight, cons.bulgeWeight);     
     }
 }

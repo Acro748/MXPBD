@@ -141,6 +141,8 @@ namespace MXPBD
 
     void XPBDWorldUpdater::onEvent(const Mus::FrameEvent& e)
     {
+        if (e.hookType == Mus::FrameEvent::HookType::kEnd)
+            return;
         RunSkeletonQueue();
         RunFacegenQueue();
         RunArmorQueue();
@@ -173,5 +175,23 @@ namespace MXPBD
         if (!e.IsChangedInOut)
             return;
         XPBDWorldSystem::GetSingleton().Reset();
+    }
+
+    EventResult XPBDWorldUpdater::ProcessEvent(const RE::MenuOpenCloseEvent* evn, RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
+    {
+        if (!evn)
+            return EventResult::kContinue;
+        if (evn->menuName == "RaceSex Menu")
+        {
+            if (evn->opening)
+            {
+
+            }
+            else
+            {
+                XPBDWorldSystem::GetSingleton().ReloadPhysics(RE::PlayerCharacter::GetSingleton());
+            }
+        }
+        return EventResult::kContinue;
     }
 } // namespace MXPBD

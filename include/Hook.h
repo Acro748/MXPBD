@@ -61,11 +61,12 @@ namespace Mus {
 
 	struct FrameEvent
 	{
+		enum HookType {
+			kStart,
+			kEnd
+		};
+        HookType hookType;
 		bool gamePaused;
-	};
-
-	struct QuitGameEvent
-	{
 	};
 
 	struct FacegenNiNodeEvent
@@ -102,7 +103,6 @@ namespace Mus {
 	};
 
 	extern EventDispatcherImpl<FrameEvent>  g_frameEventDispatcher;
-	extern EventDispatcherImpl<QuitGameEvent>  g_quitGameEventDispatcher;
 	extern EventDispatcherImpl<FacegenNiNodeEvent> g_facegenNiNodeEventDispatcher;
 	extern EventDispatcherImpl<ArmorAttachEvent> g_armorAttachEventDispatcher;
     extern EventDispatcherImpl<ArmorDetachEvent> g_armorDetachEventDispatcher;

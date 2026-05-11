@@ -1,9 +1,18 @@
-#include "MXPBD/ConvexHull.h"
+#include "MXPBD/Collider.h"
 #include "QuickHull.hpp"
 #include "meshoptimizer.h"
 
 namespace MXPBD
 {
+    ColliderType GetColliderType(const Mus::lString& str)
+    {
+        if (str == "convexHull")
+            return ColliderType::kConvexHull;
+        else if (str == "sphere")
+            return ColliderType::kSphere;
+        return ColliderType::kNone;
+    }
+
     void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawConvexHull& a_rawConvexHull)
     {
         quickhull::QuickHull<float> qh;
@@ -131,7 +140,7 @@ namespace MXPBD
                     RE::NiPoint3 d = finalConvexVerts[b] - finalConvexVerts[a];
                     const float lenSq = d.SqrLength();
 
-                    if (lenSq > FloatPrecision)
+                    if (lenSq > Epsilon)
                     {
                         const float len = std::sqrt(lenSq);
                         tempEdges.push_back({d / len, len});
@@ -214,7 +223,7 @@ namespace MXPBD
 
                 RE::NiPoint3 n = edge2.Cross(edge1);
                 const float lenSq = n.SqrLength();
-                if (lenSq < FloatPrecision)
+                if (lenSq < Epsilon)
                     continue;
 
                 const float invLen = rsqrt(lenSq);
@@ -251,6 +260,24 @@ namespace MXPBD
                 a_convexHullDataBatch.fZ[f] = finalFaces[ff].z;
             }
         }
+    }
+
+    float GetVolume(const RawConvexHull& a_convexHull)
+    {
+        if (a_convexHull.indices.size() % 3 != 0 || a_convexHull.vertices.empty())
+            return 0.0f;
+        float totalVolume = 0.0f;
+        for (std::size_t i = 0; i < a_convexHull.indices.size(); i += 3)
+        {
+            const Vector p1 = ToVector(a_convexHull.vertices[a_convexHull.indices[i + 0]]);
+            const Vector p2 = ToVector(a_convexHull.vertices[a_convexHull.indices[i + 1]]);
+            const Vector p3 = ToVector(a_convexHull.vertices[a_convexHull.indices[i + 2]]);
+            const Vector cross = DirectX::XMVector3Cross(p2, p3);
+            const Vector dot = DirectX::XMVector3Dot(p1, cross);
+            totalVolume += DirectX::XMVectorGetX(dot);
+        }
+        const float n = 1.0f / 6.0f;
+        return std::abs(totalVolume * n);
     }
 
     std::vector<PointCloud> ConvertPointClouds(const BoneVertexData& a_boneVertexData)
@@ -291,19 +318,24 @@ namespace MXPBD
         const RE::BSTriShape* triShape = geometry->AsTriShape();
         if (!triShape)
             return boneVertData;
-        if (!geometry->GetGeometryRuntimeData().skinInstance)
-            return boneVertData;
-        RE::NiSkinInstance* skinInstance = geometry->GetGeometryRuntimeData().skinInstance.get();
-        if (!skinInstance->skinData || !skinInstance->skinPartition)
-            return boneVertData;
-        const auto& skinPartition = skinInstance->skinPartition;
-        if (!skinPartition)
-            return boneVertData;
         std::uint32_t vertexCount = triShape->GetTrishapeRuntimeData().vertexCount;
-        vertexCount = vertexCount > 0 ? vertexCount : skinPartition->vertexCount;
         auto vertexDesc = geometry->GetGeometryRuntimeData().vertexDesc;
         const std::uint32_t vertexSize = vertexDesc.GetSize();
         const bool isSkinned = vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_SKINNED);
+
+        std::uint8_t offset = 0;
+        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX))
+            offset += 16;
+        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_UV))
+            offset += 4;
+        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_UV_2))
+            offset += 4;
+        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_NORMAL))
+            offset += 4;
+        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_TANGENT))
+            offset += 4;
+        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_COLORS))
+            offset += 4;
 
         struct Bone
         {
@@ -314,6 +346,15 @@ namespace MXPBD
         std::vector<Bone> IdxToBoneData;
         if (isSkinned)
         {
+            if (!geometry->GetGeometryRuntimeData().skinInstance)
+                return boneVertData;
+            RE::NiSkinInstance* skinInstance = geometry->GetGeometryRuntimeData().skinInstance.get();
+            if (!skinInstance->skinData || !skinInstance->skinPartition)
+                return boneVertData;
+            const auto& skinPartition = skinInstance->skinPartition;
+            if (!skinPartition)
+                return boneVertData;
+            vertexCount = vertexCount > 0 ? vertexCount : skinPartition->vertexCount;
             const auto& skinData = skinInstance->skinData;
             const auto& bones = skinInstance->bones;
             if (!skinData || !bones)
@@ -332,9 +373,98 @@ namespace MXPBD
                 IdxToBoneData[i].boneToSkin = boneData[i].skinToBone.Invert();
                 IdxToBoneData[i].isCloned = IsCloneNodeName(boneName);
             }
+
+            RE::NiPoint3* dynamicData1 = nullptr;
+            DirectX::XMFLOAT4* dynamicData2 = nullptr;
+            if (auto dynamicTri = geometry->AsDynamicTriShape(); dynamicTri)
+            {
+                RE::BSFaceGenBaseMorphExtraData* fodData = netimmerse_cast<RE::BSFaceGenBaseMorphExtraData*>(dynamicTri->GetExtraData("FOD"));
+                if (fodData)
+                    dynamicData1 = fodData->vertexData;
+                else if (dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData)
+                    dynamicData2 = reinterpret_cast<DirectX::XMFLOAT4*>(dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData);
+            }
+            struct BoneData
+            {
+                std::uint16_t boneWeights[4];
+                std::uint8_t boneIdx[4] = {UINT8_MAX, UINT8_MAX, UINT8_MAX, UINT8_MAX};
+            };
+            const auto& partition = skinPartition->partitions[0];
+            if (!partition.buffData || !partition.buffData->rawVertexData)
+                return boneVertData;
+            const float validWeightThreshold = Mus::Config::GetSingleton().GetValidBoneWeightThreshold();
+            for (std::uint32_t vi = 0; vi < vertexCount; ++vi)
+            {
+                std::uint8_t* block = &partition.buffData->rawVertexData[vi * vertexSize];
+                RE::NiPoint3 pos;
+                BoneData boneData;
+                if (dynamicData1)
+                {
+                    pos.x = dynamicData1[vi].x;
+                    pos.y = dynamicData1[vi].y;
+                    pos.z = dynamicData1[vi].z;
+                }
+                else if (dynamicData2)
+                {
+                    pos.x = dynamicData2[vi].x;
+                    pos.y = dynamicData2[vi].y;
+                    pos.z = dynamicData2[vi].z;
+                }
+                else
+                {
+                    pos = *reinterpret_cast<RE::NiPoint3*>(block);
+                }
+
+                block += offset;
+                boneData = *reinterpret_cast<BoneData*>(block);
+
+                std::uint8_t isValidBit = 0;
+                for (std::uint8_t bdi = 0; bdi < 4; ++bdi)
+                {
+                    const std::uint8_t bi = boneData.boneIdx[bdi];
+                    const float boneWeight = DirectX::PackedVector::XMConvertHalfToFloat(boneData.boneWeights[bdi]);
+                    if (bi >= boneCount || boneWeight <= validWeightThreshold)
+                        continue;
+                    isValidBit |= IdxToBoneData[bi].isCloned << bdi;
+                }
+                if (isValidBit == 0)
+                {
+                    for (std::uint8_t bdi = 0; bdi < 4; ++bdi)
+                    {
+                        const std::uint8_t bi = boneData.boneIdx[bdi];
+                        const float boneWeight = DirectX::PackedVector::XMConvertHalfToFloat(boneData.boneWeights[bdi]);
+                        if (bi >= boneCount || boneWeight <= validWeightThreshold)
+                            continue;
+                        isValidBit |= 1 << bdi;
+                    }
+                }
+                auto isValid = [isValidBit](std::uint8_t bdi) {
+                    return (isValidBit & 1 << bdi);
+                };
+                for (std::uint8_t bdi = 0; bdi < 4; ++bdi)
+                {
+                    if (!isValid(bdi))
+                        continue;
+                    const std::uint8_t bi = boneData.boneIdx[bdi];
+                    const std::string boneName = IdxToBoneData[bi].boneName;
+                    const RE::NiTransform transform = IdxToBoneData[bi].boneToSkin;
+                    const RE::NiPoint3 localPos = transform.rotate.Transpose() * (pos - transform.translate) * (1.0f / transform.scale);
+                    boneVertData.boneVertexData[boneName].push_back(localPos);
+                    for (std::uint8_t bdiAlt = 0; bdiAlt < 4; ++bdiAlt)
+                    {
+                        if (bdi == bdiAlt || !isValid(bdiAlt))
+                            continue;
+                        const std::uint8_t altBi = boneData.boneIdx[bdiAlt];
+                        const std::string nearBoneName = IdxToBoneData[altBi].boneName;
+                        boneVertData.nearBones[boneName].insert(nearBoneName);
+                    }
+                }
+            }
         }
         else
         {
+            if (vertexCount == 0)
+                return boneVertData;
             if (!geometry->parent || geometry->parent->name.empty())
                 return boneVertData;
             std::string_view boneName = geometry->parent->name.c_str();
@@ -343,112 +473,17 @@ namespace MXPBD
             newBone.boneToSkin = {};
             newBone.isCloned = IsCloneNodeName(boneName);
             IdxToBoneData.push_back(newBone);
-        }
 
-        std::uint8_t offset = 0;
-        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_VERTEX))
-            offset += 16;
-        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_UV))
-            offset += 4;
-        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_UV_2))
-            offset += 4;
-        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_NORMAL))
-            offset += 4;
-        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_TANGENT))
-            offset += 4;
-        if (vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_COLORS))
-            offset += 4;
-
-        RE::NiPoint3* dynamicData1 = nullptr;
-        DirectX::XMFLOAT4* dynamicData2 = nullptr;
-        if (auto dynamicTri = geometry->AsDynamicTriShape(); dynamicTri)
-        {
-            RE::BSFaceGenBaseMorphExtraData* fodData = netimmerse_cast<RE::BSFaceGenBaseMorphExtraData*>(dynamicTri->GetExtraData("FOD"));
-            if (fodData)
-                dynamicData1 = fodData->vertexData;
-            else if (dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData)
-                dynamicData2 = reinterpret_cast<DirectX::XMFLOAT4*>(dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData);
-        }
-        struct BoneData
-        {
-            std::uint16_t boneWeights[4];
-            std::uint8_t boneIdx[4] = {UINT8_MAX, UINT8_MAX, UINT8_MAX, UINT8_MAX};
-        };
-        const auto& partition = skinPartition->partitions[0];
-        const float validWeightThreshold = Mus::Config::GetSingleton().GetValidBoneWeightThreshold();
-        const std::uint32_t boneCount = IdxToBoneData.size();
-        for (std::uint32_t vi = 0; vi < vertexCount; ++vi)
-        {
-            std::uint8_t* block = &partition.buffData->rawVertexData[vi * vertexSize];
-            RE::NiPoint3 pos;
-            BoneData boneData;
-            if (dynamicData1)
+            RE::BSGraphics::TriShape* renderedData = triShape->GetGeometryRuntimeData().rendererData;
+            if (!renderedData)
+                return boneVertData;
+            for (std::uint32_t vi = 0; vi < vertexCount; ++vi)
             {
-                pos.x = dynamicData1[vi].x;
-                pos.y = dynamicData1[vi].y;
-                pos.z = dynamicData1[vi].z;
-            }
-            else if (dynamicData2)
-            {
-                pos.x = dynamicData2[vi].x;
-                pos.y = dynamicData2[vi].y;
-                pos.z = dynamicData2[vi].z;
-            }
-            else
-            {
+                std::uint8_t* block = &renderedData->rawVertexData[vi * vertexSize];
+                RE::NiPoint3 pos;
                 pos = *reinterpret_cast<RE::NiPoint3*>(block);
-            }
-
-            if (isSkinned)
-            {
-                block += offset;
-                boneData = *reinterpret_cast<BoneData*>(block);
-            }
-            else
-            {
-                boneData.boneIdx[0] = 0;
-            }
-
-            std::uint8_t isValidBit = 0;
-            for (std::uint8_t bdi = 0; bdi < 4; ++bdi)
-            {
-                const std::uint8_t bi = boneData.boneIdx[bdi];
-                const float boneWeight = DirectX::PackedVector::XMConvertHalfToFloat(boneData.boneWeights[bdi]);
-                if (bi >= boneCount || boneWeight <= validWeightThreshold)
-                    continue;
-                isValidBit |= IdxToBoneData[bi].isCloned << bdi;
-            }
-            if (isValidBit == 0)
-            {
-                for (std::uint8_t bdi = 0; bdi < 4; ++bdi)
-                {
-                    const std::uint8_t bi = boneData.boneIdx[bdi];
-                    const float boneWeight = DirectX::PackedVector::XMConvertHalfToFloat(boneData.boneWeights[bdi]);
-                    if (bi >= boneCount || boneWeight <= validWeightThreshold)
-                        continue;
-                    isValidBit |= 1 << bdi;
-                }
-            }
-            auto isValid = [isValidBit](std::uint8_t bdi) {
-                return (isValidBit & 1 << bdi);
-            };
-            for (std::uint8_t bdi = 0; bdi < 4; ++bdi)
-            {
-                if (!isValid(bdi))
-                    continue;
-                const std::uint8_t bi = boneData.boneIdx[bdi];
-                const std::string boneName = IdxToBoneData[bi].boneName;
-                const RE::NiTransform transform = IdxToBoneData[bi].boneToSkin;
-                const RE::NiPoint3 localPos = transform.rotate.Transpose() * (pos - transform.translate) * (1.0f / transform.scale);
-                boneVertData.boneVertexData[boneName].push_back(localPos);
-                for (std::uint8_t bdiAlt = 0; bdiAlt < 4; ++bdiAlt)
-                {
-                    if (bdi == bdiAlt || !isValid(bdiAlt))
-                        continue;
-                    const std::uint8_t altBi = boneData.boneIdx[bdiAlt];
-                    const std::string nearBoneName = IdxToBoneData[altBi].boneName;
-                    boneVertData.nearBones[boneName].insert(nearBoneName);
-                }
+                const std::string boneName = IdxToBoneData[0].boneName;
+                boneVertData.boneVertexData[boneName].push_back(pos);
             }
         }
         return boneVertData;
@@ -479,6 +514,59 @@ namespace MXPBD
             return RE::BSVisit::BSVisitControl::kContinue;
         });
         return geometries;
+    }
+
+    std::uint64_t GetGeometryHash(RE::BSGeometry* a_geometry)
+    {
+        if (!a_geometry)
+            return 0;
+        const RE::BSTriShape* triShape = a_geometry->AsTriShape();
+        if (!triShape)
+            return 0;
+        std::uint32_t vertexCount = triShape->GetTrishapeRuntimeData().vertexCount;
+        auto vertexDesc = a_geometry->GetGeometryRuntimeData().vertexDesc;
+        const std::uint32_t vertexSize = vertexDesc.GetSize();
+        const bool isSkinned = vertexDesc.HasFlag(RE::BSGraphics::Vertex::VF_SKINNED);
+        if (isSkinned)
+        {
+            if (!a_geometry->GetGeometryRuntimeData().skinInstance)
+                return 0;
+            RE::NiSkinInstance* skinInstance = a_geometry->GetGeometryRuntimeData().skinInstance.get();
+            if (!skinInstance->skinData || !skinInstance->skinPartition)
+                return 0;
+            const auto& skinPartition = skinInstance->skinPartition;
+            if (!skinPartition)
+                return 0;
+            vertexCount = vertexCount > 0 ? vertexCount : skinPartition->vertexCount;
+            const auto& partition = skinPartition->partitions[0];
+            if (!partition.buffData || !partition.buffData->rawVertexData)
+                return 0;
+            
+            RE::NiPoint3* dynamicData1 = nullptr;
+            DirectX::XMFLOAT4* dynamicData2 = nullptr;
+            if (auto dynamicTri = a_geometry->AsDynamicTriShape(); dynamicTri)
+            {
+                RE::BSFaceGenBaseMorphExtraData* fodData = netimmerse_cast<RE::BSFaceGenBaseMorphExtraData*>(dynamicTri->GetExtraData("FOD"));
+                if (fodData)
+                    dynamicData1 = fodData->vertexData;
+                else if (dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData)
+                    dynamicData2 = reinterpret_cast<DirectX::XMFLOAT4*>(dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData);
+            }
+            if (dynamicData1)
+                return XXH3_64bits(dynamicData1, sizeof(dynamicData1) * vertexCount);
+            else if (dynamicData2)
+                return XXH3_64bits(dynamicData2, sizeof(dynamicData2) * vertexCount);
+            else
+                return XXH3_64bits(partition.buffData->rawVertexData, vertexSize * vertexCount);
+        }
+        else
+        {
+            RE::BSGraphics::TriShape* renderedData = triShape->GetGeometryRuntimeData().rendererData;
+            if (!renderedData || !renderedData->rawVertexData)
+                return 0;
+            return XXH3_64bits(renderedData->rawVertexData, vertexSize * vertexCount);
+        }
+        return 0;
     }
 
     void writeWaveformOBJ(const std::string& filename, const std::string& objectName, const std::vector<RE::NiPoint3>& vertices, const std::vector<std::uint32_t>& indices)

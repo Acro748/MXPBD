@@ -18,20 +18,24 @@ namespace MXPBD {
         }
 
         void Init();
-        void LoadConfigOnPhysicsWorld() const;
+        void LoadConfigOnPhysicsWorld();
 
-        void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider = true);
+        void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider);
         void UpdatePhysicsSetting(RE::TESObjectREFR* object, PhysicsInput input);
+        void UpdatePhysicsSetting(RE::TESObjectREFR* object, bool isAddCollider);
         void Reset() const;
         void Reset(RE::TESObjectREFR* object) const;
         void RemovePhysics(const RE::FormID objectID);
         void RemovePhysics(RE::TESObjectREFR* object, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot);
         void ReloadPhysics(RE::TESObjectREFR* object);
         void TogglePhysics(RE::TESObjectREFR* object, bool isDisable);
-        void UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode);
+        bool UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode);
+
     private:
         std::unique_ptr<XPBDWorld> physicsWorld;
+        bool isAsyncPhysics = false;
         std::uint8_t isRaceSexMenuOpen = 0;
+        std::uint32_t morphDetectQuality = 1 << 5;
 
         void AddSkeletonPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode);
         void AddFacegenPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode);
@@ -84,6 +88,34 @@ namespace MXPBD {
 
         std::string GetPhysicsInputPath(RE::NiNode* root) const;
         std::string GetSMPConfigPath(RE::NiNode* root) const;
+
+        void DetectMorphChanges();
+
+        class TimeProfiler {
+        public:
+            TimeProfiler() = delete;
+            TimeProfiler(const std::string& a_funcName) : funcName(a_funcName) {};
+            void Start() {
+                timeStart = std::chrono::high_resolution_clock::now();
+            }
+            void End(const XPBDWorldSystem* worldSystem) {
+                const auto timeEnd = std::chrono::high_resolution_clock::now();
+                nsSum += std::chrono::duration_cast<std::chrono::nanoseconds>(timeEnd - timeStart).count();
+                timeCount++;
+                if (timeCount >= 1000) {
+                    const auto ms = (nsSum * 0.001f) * ns2ms;
+                    logger::debug("{} time: {:.3f}ms", funcName, ms);
+                    nsSum = 0;
+                    timeCount = 0;
+                }
+            }
+
+        private:
+            std::string funcName = "";
+            double nsSum = 0.0;
+            std::uint32_t timeCount = 0;
+            std::chrono::steady_clock::time_point timeStart;
+        };
     protected:
         void onEvent(const Mus::FrameEvent& e) override;
         void onEvent(const Mus::FacegenNiNodeEvent& e) override;

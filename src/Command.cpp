@@ -45,11 +45,20 @@ namespace Mus {
                     MXPBD::XPBDWorldSystem::GetSingleton().ReloadPhysics(a_actor);
             }
 		}
+		else if (IsSameString(str1, "update"))
+		{
+            if (a_actor->loadedData && a_actor->loadedData->data3D)
+                MXPBD::XPBDWorldSystem::GetSingleton().UpdatePhysicsSetting(a_actor, true);
+		}
 		else if (IsSameString(str1, "reset"))
 		{
             if (a_actor->loadedData && a_actor->loadedData->data3D)
                 MXPBD::XPBDWorldSystem::GetSingleton().Reset(a_actor);
 		}
+        else
+        {
+            Console->Print("reload, update, reset");
+        }
 
 		return false;
 	}

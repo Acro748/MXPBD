@@ -87,8 +87,8 @@ namespace {
         MXPBD::IsHDTSMPEnabled = GetModuleHandleW(L"hdtSMP64");
         if (!MXPBD::IsHDTSMPEnabled)
             Mus::fixFaceGenBoneLimit();
-        MXPBD::XPBDWorldSystem::GetSingleton().Init();
         MXPBD::XPBDWorldUpdater::GetSingleton().Init();
+        MXPBD::XPBDWorldSystem::GetSingleton().Init();
     }
 
     void kNewGameFunction()

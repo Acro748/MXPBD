@@ -23,6 +23,9 @@ namespace Mus {
         }
 
         //General
+        [[nodiscard]] inline auto GetSubtractThreadCount() const noexcept {
+            return SubtractThreadCount;
+        }
         [[nodiscard]] inline auto GetIterationMax() const noexcept {
             return IterationMax;
         }
@@ -65,6 +68,12 @@ namespace Mus {
         [[nodiscard]] inline auto GetColliderHashTableSize() const noexcept {
             return ColliderHashTableSize;
         }
+        [[nodiscard]] inline auto GetMorphDetectQuality() const noexcept {
+            return MorphDetectQuality;
+        }
+        [[nodiscard]] inline auto GetVolumeMultiplier() const noexcept {
+            return VolumeMultiplier;
+        }
 
     protected:
         //Debug
@@ -72,6 +81,7 @@ namespace Mus {
         spdlog::level::level_enum flushLevel{ spdlog::level::level_enum::trace };
 
         //General
+        std::int32_t SubtractThreadCount = -1;
         std::uint8_t IterationMax = 5;
         float SmallGridSize = 30.0f;
         float LargeGridSize = 100.0f;
@@ -90,6 +100,9 @@ namespace Mus {
         std::uint8_t ColliderHashTableSize = 10;
 
         float ValidBoneWeightThreshold = 0.0001f;
+
+        std::uint8_t MorphDetectQuality = 5;
+        float VolumeMultiplier = 0.6f;
 
     public:
         inline std::string getCurrentSettingValue(std::string s)

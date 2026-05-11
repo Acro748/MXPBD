@@ -7,7 +7,7 @@
     "tinyxml2",
     "magic-enum",
     "meshoptimizer",
-    "unordered-dense",
+    "xxhash",
     "tbb"
   ],
   "builtin-baseline": "4b77da7fed37817f124936239197833469f1b9a8"
