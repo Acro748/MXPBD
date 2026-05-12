@@ -7,10 +7,15 @@ namespace MXPBD {
     constexpr RE::NiPoint3 pHalfInf = RE::NiPoint3(10000.0f, 10000.0f, 10000.0f);
     constexpr RE::NiPoint3 pRotInf = RE::NiPoint3(DirectX::XM_PI, DirectX::XM_PI, DirectX::XM_PI);
     const RE::NiMatrix3 mZero = RE::NiMatrix3(pZero, pZero, pZero);
-    constexpr float ConvertM3ToLitre = 1000.0f;
+
+    // for ni world : 1m * SkyrimWorldScaleInverse
+    // for havok world : 1m * SkyrimWorldUnitInverse * SkyrimWorldScale
     constexpr float SkyrimWorldScale = 0.0142875f;
-    constexpr float SkyrimWorldScaleVolume = SkyrimWorldScale * SkyrimWorldScale * SkyrimWorldScale * ConvertM3ToLitre;
     constexpr float SkyrimWorldScaleInverse = 1.0f / SkyrimWorldScale;
+    constexpr float SkyrimWorldScaleVolume = SkyrimWorldScale * SkyrimWorldScale * SkyrimWorldScale * 1000.0f;
+    constexpr float SkyrimWorldUnit = 0.046875f;
+    constexpr float SkyrimWorldUnitInverse = 1.0f / SkyrimWorldUnit;
+
     constexpr float DeltaTime60 = 1.0f / 60.0f;
     const std::size_t CoreCount = std::thread::hardware_concurrency();
     constexpr float Epsilon = 1e-5f;

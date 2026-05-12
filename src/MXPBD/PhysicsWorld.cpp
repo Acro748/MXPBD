@@ -801,7 +801,7 @@ namespace MXPBD
                             {
                                 ResetBone(bi);
                             }
-                            UpdateChildTreeData(GetNPCNodeByObjectIndex(physicsBones.objIdx[begin]));
+                            UpdateChildTreeData(GetNPCNodeByObjectIndex(physicsBones.objIdx[begin]), RE::NiUpdateData::Flag::kDirty);
                             for (std::uint32_t bi = begin; bi < end; ++bi)
                             {
                                 ResetParticleBone(bi);
@@ -858,7 +858,7 @@ namespace MXPBD
                 {
                     ResetBone(bi);
                 }
-                UpdateChildTreeData(GetNPCNodeByObjectIndex(physicsBones.objIdx[begin]));
+                UpdateChildTreeData(GetNPCNodeByObjectIndex(physicsBones.objIdx[begin]), RE::NiUpdateData::Flag::kDirty);
                 for (std::uint32_t bi = begin; bi < end; ++bi)
                 {
                     ResetParticleBone(bi);
@@ -880,36 +880,38 @@ namespace MXPBD
     {
         if (auto& node = physicsBones.node[bi]; node)
         {
-            const RE::NiPoint3 oldLocalPos = ToPoint3(physicsBones.orgLocalPos[bi]);
-            const RE::NiMatrix3 oldLocalRot = ToNiMatrix(physicsBones.orgLocalRot[bi]);
-            memcpy(&node->local.translate, &oldLocalPos, sizeof(oldLocalPos));
-            memcpy(&node->local.rotate, &oldLocalRot, sizeof(oldLocalRot));
+            const RE::NiPoint3 localPos = ToNiPoint(physicsBones.orgLocalPos[bi]);
+            const RE::NiMatrix3 localRot = ToNiMatrix(physicsBones.orgLocalRot[bi]);
+            memcpy(&node->local.translate, &localPos, sizeof(localPos));
+            memcpy(&node->local.rotate, &localRot, sizeof(localRot));
+
+            if (node->parent)
+            {
+                const Vector parentWorldPos = ToVector(node->parent->world.translate);
+                const Quaternion parentWorldRot = ToQuaternion(node->parent->world.rotate);
+                const RE::NiPoint3 worldPos = ToNiPoint(DirectX::XMVectorAdd(DirectX::XMVector3Rotate(DirectX::XMVectorScale(physicsBones.orgLocalPos[bi], node->parent->world.scale), parentWorldRot), parentWorldPos));
+                const RE::NiMatrix3 worldRot = ToNiMatrix(DirectX::XMQuaternionNormalize(DirectX::XMQuaternionMultiply(physicsBones.orgLocalRot[bi], parentWorldRot)));
+                memcpy(&node->world.translate, &worldPos, sizeof(worldPos));
+                memcpy(&node->world.rotate, &worldRot, sizeof(worldRot));
+            }
 
             const Vector offset = DirectX::XMVector3Rotate(DirectX::XMVectorScale(physicsBones.offset[bi], physicsBones.orgWorldScale[bi]), ToQuaternion(node->world.rotate));
             physicsBones.pos[bi] = DirectX::XMVectorAdd(ToVector(node->world.translate), offset);
             physicsBones.rot[bi] = ToQuaternion(node->world.rotate);
+
+            physicsBones.prevPos[bi] = physicsBones.pos[bi];
+            physicsBones.predPos[bi] = physicsBones.pos[bi];
+            physicsBones.posVel[bi] = vZero;
+
+            physicsBones.prevRot[bi] = physicsBones.rot[bi];
+            physicsBones.predRot[bi] = physicsBones.rot[bi];
+            physicsBones.backupRot[bi] = physicsBones.rot[bi];
+            physicsBones.angVel[bi] = vZero;
+
+            physicsBones.deformScale[bi] = vmIdentity;
+            physicsBones.deformScaleCache[bi] = vmZeroAll;
+            physicsBones.deformVelocityScale[bi] = vmZeroAll;
         }
-        else if (physicsBones.isParticle[bi] && physicsBones.parentBoneIdx[bi] != UINT32_MAX)
-        {
-            const std::uint32_t pbi = physicsBones.parentBoneIdx[bi];
-            const Vector offset = DirectX::XMVector3Rotate(DirectX::XMVectorScale(physicsBones.offset[bi], physicsBones.orgWorldScale[pbi]), physicsBones.rot[pbi]);
-            physicsBones.pos[bi] = DirectX::XMVectorAdd(physicsBones.pos[pbi], offset);
-            physicsBones.rot[bi] = physicsBones.rot[pbi];
-        }
-
-        physicsBones.prevPos[bi] = physicsBones.pos[bi];
-        physicsBones.predPos[bi] = physicsBones.pos[bi];
-        physicsBones.posVel[bi] = vZero;
-
-        physicsBones.prevRot[bi] = physicsBones.rot[bi];
-        physicsBones.predRot[bi] = physicsBones.rot[bi];
-        physicsBones.backupRot[bi] = physicsBones.rot[bi];
-        physicsBones.angVel[bi] = vZero;
-
-        physicsBones.deformScale[bi] = vmZeroAll;
-        physicsBones.deformScaleCache[bi] = vmZeroAll;
-        physicsBones.deformVelocityScale[bi] = vmZeroAll;
-
         isResetBones = true;
     }
 
@@ -929,7 +931,12 @@ namespace MXPBD
             physicsBones.predRot[bi] = physicsBones.rot[bi];
             physicsBones.backupRot[bi] = physicsBones.rot[bi];
             physicsBones.angVel[bi] = vZero;
+
+            physicsBones.deformScale[bi] = vmIdentity;
+            physicsBones.deformScaleCache[bi] = vmZeroAll;
+            physicsBones.deformVelocityScale[bi] = vmZeroAll;
         }
+        isResetBones = true;
     }
 
     void XPBDWorld::RemovePhysics(const RE::FormID objectID)
@@ -1175,7 +1182,6 @@ namespace MXPBD
                     }
                     ClampObjectRotation(preCalcStepCount);
                     PrefetchBoneDatas();
-                    groundCache.resize(physicsBones.numBones);
                     ObjectCulling();
                 }
                 std::uint32_t stepCount = 0;
@@ -1230,7 +1236,6 @@ namespace MXPBD
 
     void XPBDWorld::RunPhysicsWorldAsync(const float deltaTime)
     {
-        // logger::info("{}", __func__);
         std::lock_guard lg(lock);
         if (isResetBones && deltaTime <= Epsilon)
             return;
@@ -1274,7 +1279,6 @@ namespace MXPBD
                         }
                     }
                     ObjectCulling();
-                    groundCache.resize(physicsBones.numBones);
                     GenerateGroundCache(preCalcStepCount);
                     UpdateWindStrength();
                 }
@@ -1327,7 +1331,6 @@ namespace MXPBD
     {
         if (!isTaskLoading)
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -1347,7 +1350,6 @@ namespace MXPBD
     {
         if (physicsBonesGroup.empty())
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -1391,7 +1393,6 @@ namespace MXPBD
     {
         if (physicsBonesGroup.empty() || ROTATION_CLAMP <= Epsilon)
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -1432,7 +1433,7 @@ namespace MXPBD
                 q_delta = DirectX::XMVectorNegate(q_delta);
 
             const float cosHalfAngle = std::clamp(DirectX::XMVectorGetW(q_delta), -1.0f, 1.0f);
-            const float angle = 2.0f * std::acos(cosHalfAngle);
+            const float angle = 2.0f * DirectX::XMScalarACos(cosHalfAngle);
             const float t = (angle > clamp) ? (clamp * reciprocal(angle)) : 1.0f;
             const Quaternion q_final = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionSlerp(q_prev, q_target, t));
             const RE::NiMatrix3 npc_world = ToNiMatrix(q_final);
@@ -1443,7 +1444,7 @@ namespace MXPBD
 
             RE::NiUpdateData ctx = {0.0f, RE::NiUpdateData ::Flag::kDirty};
             npcNode->UpdateWorldData(&ctx);
-            UpdateChildTreeData(npcNode);
+            UpdateChildTreeData(npcNode, RE::NiUpdateData::Flag::kDirty);
 
             objectDatas.deltaWorldRot[oi] = DirectX::XMQuaternionSlerp(qZero, DirectX::XMQuaternionMultiply(q_inv, q_final), reciprocal(stepCount));
         }
@@ -1453,8 +1454,6 @@ namespace MXPBD
 
     void XPBDWorld::PrefetchBoneDatas()
     {
-        // logger::info("{}", __func__);
-
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
 
@@ -1463,6 +1462,8 @@ namespace MXPBD
             [&](const tbb::blocked_range<std::uint32_t>& r) {
                 for (std::uint32_t bi = r.begin(); bi != r.end(); ++bi)
                 {
+                    physicsBones.groundCache[bi].isCast = false;
+
                     if (physicsBones.isParticle[bi])
                         continue;
                     auto& node = physicsBones.node[bi];
@@ -1492,8 +1493,6 @@ namespace MXPBD
 
     void XPBDWorld::InterpolateBoneDatas(const float alpha, const float nextAlpha)
     {
-        // logger::info("{}", __func__);
-
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
 
@@ -1557,8 +1556,6 @@ namespace MXPBD
 
     void XPBDWorld::UpdateGlobalAABBTree()
     {
-        // logger::info("{}", __func__);
-
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
 
@@ -1702,7 +1699,9 @@ namespace MXPBD
         const std::uint32_t gEnd = std::min(gBegin + chunkSize, groups);
         if (gBegin >= groups)
             return;
-        const Vector windVector = DirectX::XMVectorSet(sin(windAngle), std::cos(windAngle), 0.0f, 0.0f);
+        float windAngleSin, windAngleCos;
+        DirectX::XMScalarSinCos(&windAngleSin, &windAngleCos, windAngle);
+        const Vector windVector = DirectX::XMVectorSet(windAngleSin, windAngleCos, 0.0f, 0.0f);
 
         class WindHitCollector : public RE::hkpRayHitCollector
         {
@@ -1762,7 +1761,7 @@ namespace MXPBD
             const Vector windRayTo = DirectX::XMVectorScale(windVector, -WIND_DETECT_RANGE);
             const Vector to = DirectX::XMVectorAdd(from, windRayTo);
             const Vector havokTo = DirectX::XMVectorScale(to, SkyrimWorldScale);
-            
+
             RE::bhkPickData pickData;
             pickData.rayInput.from = havokFrom;
             pickData.rayInput.to = havokTo;
@@ -1801,17 +1800,17 @@ namespace MXPBD
 
     void XPBDWorld::PredictBones(const float deltaTime)
     {
-        // logger::info("{}", __func__);
-
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
 
         const Vector dt = DirectX::XMVectorReplicate(deltaTime);
         const Vector invDt = DirectX::XMVectorReciprocal(dt);
         const Vector invDtDb = DirectX::XMVectorScale(invDt, 2.0f);
-        const float flutterNoise = 1.0f + 0.5f * sin(currentFrame * 0.1f);
-        const float windX = sin(windAngle) * windSpeed * WIND_MULTIPLIER;
-        const float windY = std::cos(windAngle) * windSpeed * WIND_MULTIPLIER;
+        const float flutterNoise = 1.0f + 0.5f * DirectX::XMScalarSin(currentFrame * 0.1f);
+        float windAngleSin, windAngleCos;
+        DirectX::XMScalarSinCos(&windAngleSin, &windAngleCos, windAngle);
+        const float windX = windAngleSin * windSpeed * WIND_MULTIPLIER;
+        const float windY = windAngleCos * windSpeed * WIND_MULTIPLIER;
         const float windZFlutter = windSpeed * flutterNoise * WIND_MULTIPLIER;
         const float windTimeFreq = currentFrame * 0.05f;
         tbb::parallel_for(
@@ -1819,6 +1818,8 @@ namespace MXPBD
             [&](const tbb::blocked_range<std::uint32_t>& r) {
                 for (std::uint32_t bi = r.begin(); bi != r.end(); ++bi)
                 {
+                    physicsBones.groundCache[bi].isCast = false;
+
                     const std::uint32_t oi = physicsBones.objIdx[bi];
                     if (IsDisable(oi))
                         continue;
@@ -1863,7 +1864,7 @@ namespace MXPBD
                     // apply wind
                     if (Epsilon < objectDatas.windMultiplier[oi])
                     {
-                        const float posNoise = sin(windTimeFreq + (DirectX::XMVectorGetX(physicsBones.pos[bi]) * 0.02f));
+                        const float posNoise = DirectX::XMScalarSin(windTimeFreq + (DirectX::XMVectorGetX(physicsBones.pos[bi]) * 0.02f));
                         const float windZ = windZFlutter * (0.3f + posNoise * 0.4f);
                         const Vector worldWind = DirectX::XMVectorSet(windX, windY, windZ, 0.0f);
                         const Vector localWind = DirectX::XMVector3Rotate(worldWind, invRot);
@@ -1882,7 +1883,7 @@ namespace MXPBD
                         if (DirectX::XMVector3Greater(axisLenSq, vEpsilon))
                         {
                             const float w = std::clamp(DirectX::XMVectorGetW(q_delta), -1.0f, 1.0f);
-                            const float angle = 2.0f * std::acos(w);
+                            const float angle = 2.0f * DirectX::XMScalarACos(w);
                             const Vector axis = DirectX::XMVectorMultiply(axisRaw, DirectX::XMVectorReciprocalSqrt(axisLenSq));
                             const Vector omega = DirectX::XMVectorMultiply(axis, DirectX::XMQuaternionMultiply(DirectX::XMVectorReplicate(angle), invDt));
                             std::uint32_t rootPbi = pbi;
@@ -1933,15 +1934,16 @@ namespace MXPBD
                             const Vector magSq = DirectX::XMVector3LengthSq(DirectX::XMVectorSetW(delta, 0.0f));
                             if (DirectX::XMVector3Greater(magSq, vEpsilon))
                             {
-                                const Vector pivot = physicsBones.predPos[rootPbi];
+                                const Vector pivot = physicsBones.pos[rootPbi];
                                 const Vector localPred = DirectX::XMVectorSubtract(physicsBones.predPos[bi], pivot);
                                 physicsBones.predPos[bi] = DirectX::XMVectorAdd(pivot, DirectX::XMVector3Rotate(localPred, delta));
                                 const Vector localPos = DirectX::XMVectorSubtract(physicsBones.pos[bi], pivot);
                                 physicsBones.pos[bi] = DirectX::XMVectorAdd(pivot, DirectX::XMVector3Rotate(localPos, delta));
+                                physicsBones.rot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionMultiply(physicsBones.rot[bi], delta));
                                 physicsBones.posVel[bi] = DirectX::XMVector3Rotate(physicsBones.posVel[bi], delta);
                                 physicsBones.angVel[bi] = DirectX::XMVector3Rotate(physicsBones.angVel[bi], delta);
-                                physicsBones.rot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionMultiply(physicsBones.rot[bi], delta));
                             }
+
                             const Quaternion q = physicsBones.rot[bi];
                             const Quaternion w = DirectX::XMVectorMultiply(physicsBones.angVel[bi], DirectX::XMVectorMultiply(dt, vHalf));
                             physicsBones.predRot[bi] = DirectX::XMQuaternionNormalize(DirectX::XMVectorAdd(q, DirectX::XMQuaternionMultiply(q, w)));
@@ -1962,9 +1964,7 @@ namespace MXPBD
 
                         const Vector worldOffset = DirectX::XMVectorSubtract(physicsBones.predPos[bi], targetRestPos);
                         const Vector localDeviation = DirectX::XMVector3Rotate(worldOffset, invRot);
-
                         const Vector isPositive = DirectX::XMVectorGreaterOrEqual(localDeviation, vZero);
-
                         const Vector currentRadii = DirectX::XMVectorSelect(limitNegative, limitPositive, isPositive);
 
                         const Vector normalizedDev = DirectX::XMVectorMultiply(localDeviation,DirectX::XMVectorReciprocal(currentRadii));
@@ -2061,8 +2061,16 @@ namespace MXPBD
                         }
                     }
 
-                    // init
-                    groundCache[bi].isCast = false;
+                    if (IsInvalid(physicsBones.predPos[bi]) ||
+                        IsInvalid(physicsBones.predRot[bi]) ||
+                        IsInvalid(physicsBones.posVel[bi]) ||
+                        IsInvalid(physicsBones.angVel[bi]))
+                    {
+                        physicsBones.predPos[bi] = physicsBones.pos[bi];
+                        physicsBones.predRot[bi] = physicsBones.rot[bi];
+                        physicsBones.posVel[bi] = vZero;
+                        physicsBones.angVel[bi] = vZero;
+                    }
                 }
             },
             tbb::static_partitioner()
@@ -2075,7 +2083,6 @@ namespace MXPBD
     {
         if (collidersGroup.empty())
             return;
-        // logger::info("{}", __func__);
         if (objectHashesSmall.size() < objectDatas.objectID.size())
             objectHashesSmall.resize(objectDatas.objectID.size());
         if (objectHashesLarge.size() < objectDatas.objectID.size())
@@ -2166,7 +2173,6 @@ namespace MXPBD
     {
         if (collidersGroup.empty())
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -2397,7 +2403,6 @@ namespace MXPBD
     {
         if (collidersLeafs.empty() || GROUND_DETECT_RANGE <= Epsilon)
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -2439,9 +2444,10 @@ namespace MXPBD
         const std::uint32_t end = std::min(begin + chunkSize, totalLeafs);
         if (begin >= totalLeafs)
             return;
-        for (std::uint32_t ci = begin; ci < end; ++ci)
+        for (std::uint32_t i = begin; i < end; ++i)
         {
-            const std::uint32_t oi = colliders.objIdx[begin];
+            const std::uint32_t ci = collidersLeafs[i];
+            const std::uint32_t oi = colliders.objIdx[ci];
             if (IsDisable(oi))
                 continue;
             RE::bhkWorld* bhkWorld = objectDatas.bhkWorld[oi];
@@ -2451,13 +2457,13 @@ namespace MXPBD
             const std::uint32_t bi = colliders.boneIdx[ci];
             if (bi == UINT32_MAX)
                 continue;
-            if (groundCache[bi].isCast)
+            if (physicsBones.groundCache[bi].isCast)
                 continue;
 
             const AABB& localAABB = colliders.boundingAABB[ci];
             AABB worldAABB = colliders.boundingAABB[ci].GetWorldAABB(physicsBones.predPos[bi], physicsBones.predRot[bi], physicsBones.orgWorldScale[bi]);
             worldAABB.Fatten(physicsBones.collisionMargin[bi]);
-            const Vector worldBottomCenter = DirectX::XMVectorSubtract(worldAABB.GetCenter(), DirectX::XMVectorSet(0.0f, 0.0f, DirectX::XMVectorGetZ(worldAABB.min), 0.0f));
+            const Vector worldBottomCenter = DirectX::XMVectorSetZ(worldAABB.GetCenter(), DirectX::XMVectorGetZ(worldAABB.min));
 
             const Vector from = DirectX::XMVectorAdd(worldBottomCenter, groundRayFrom);
             const Vector havokFrom = DirectX::XMVectorScale(from, SkyrimWorldScale);
@@ -2472,25 +2478,25 @@ namespace MXPBD
             hitCollector.Reset();
             pickData.rayHitCollectorA8 = reinterpret_cast<RE::hkpClosestRayHitCollector*>(&hitCollector);
             bhkWorld->PickObject(pickData);
-            groundCache[bi].isCast = true;
+            physicsBones.groundCache[bi].isCast = true;
             if (hitCollector.rayHit.HasHit())
             {
                 const float fromZ = DirectX::XMVectorGetZ(from);
                 const float toZ = DirectX::XMVectorGetZ(to);
-                groundCache[bi].hasHit = true;
-                groundCache[bi].height = fromZ + (toZ - fromZ) * hitCollector.rayHit.hitFraction;
-                groundCache[bi].normal = DirectX::XMVectorSetW(hitCollector.rayHit.normal.quad, 0.0f);
+                physicsBones.groundCache[bi].hasHit = true;
+                physicsBones.groundCache[bi].height = fromZ + (toZ - fromZ) * hitCollector.rayHit.hitFraction;
+                physicsBones.groundCache[bi].normal = DirectX::XMVectorSetW(hitCollector.rayHit.normal.quad, 0.0f);
             }
             std::uint32_t pbi = physicsBones.parentBoneIdx[bi];
             while (pbi != UINT32_MAX)
             {
                 tbb::spin_mutex::scoped_lock sl(physicsBonesLock[pbi]);
-                if (groundCache[pbi].isCast)
+                if (physicsBones.groundCache[pbi].isCast)
                 {
-                    if (groundCache[pbi].hasHit && groundCache[pbi].height >= groundCache[bi].height)
+                    if (physicsBones.groundCache[pbi].hasHit && physicsBones.groundCache[pbi].height >= physicsBones.groundCache[bi].height)
                         break;
                 }
-                groundCache[pbi] = groundCache[bi];
+                physicsBones.groundCache[pbi] = physicsBones.groundCache[bi];
                 pbi = physicsBones.parentBoneIdx[pbi];
             }
         }
@@ -2706,7 +2712,6 @@ namespace MXPBD
     {
         if (collidersLeafs.empty() || GROUND_DETECT_RANGE <= Epsilon)
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -2723,7 +2728,7 @@ namespace MXPBD
                     const std::uint32_t bi = colliders.boneIdx[ci];
                     if (bi == UINT32_MAX || !IsCollideGround(bi))
                         continue;
-                    if (!groundCache[bi].hasHit)
+                    if (!physicsBones.groundCache[bi].hasHit)
                         continue;
                     const float w = physicsBones.invMass[bi];
                     if (w <= Epsilon)
@@ -2731,8 +2736,8 @@ namespace MXPBD
 
                     const Vector pos = physicsBones.predPos[bi];
 
-                    const float groundHeight = groundCache[bi].height;
-                    const Vector normal = groundCache[bi].normal;
+                    const float groundHeight = physicsBones.groundCache[bi].height;
+                    const Vector normal = physicsBones.groundCache[bi].normal;
                     const float scale = physicsBones.orgWorldScale[bi];
                     const Quaternion rot = physicsBones.predRot[bi];
                     const float margin = physicsBones.collisionMargin[bi];
@@ -2795,7 +2800,6 @@ namespace MXPBD
     {
         if (constraintsGroup.empty() && angularConstraintsGroup.empty())
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -3438,7 +3442,7 @@ namespace MXPBD
                         const Quaternion targetRot = DirectX::XMQuaternionMultiply(anchData.restRot, worldRotA);
                         const Quaternion rotDiff = DirectX::XMQuaternionMultiply(DirectX::XMQuaternionConjugate(targetRot), worldRot);
                         const float w = std::clamp(DirectX::XMVectorGetW(rotDiff), -1.0f, 1.0f);
-                        const float angle = 2.0f * std::acos(std::abs(w));
+                        const float angle = 2.0f * DirectX::XMScalarACos(std::abs(w));
                         if (angle > Epsilon)
                         {
                             if (invMass > Epsilon)
@@ -3509,13 +3513,13 @@ namespace MXPBD
                     Matrix targetMat = vmIdentity;
                     if (deformCount > 0)
                     {
-                        Vector invCount = DirectX::XMVectorReciprocal(DirectX::XMVectorReplicate(static_cast<float>(deformCount)));
+                        const Vector invCount = DirectX::XMVectorReciprocal(DirectX::XMVectorReplicate(static_cast<float>(deformCount)));
                         targetDevMat.r[0] = DirectX::XMVectorMultiply(targetDevMat.r[0], invCount);
                         targetDevMat.r[1] = DirectX::XMVectorMultiply(targetDevMat.r[1], invCount);
                         targetDevMat.r[2] = DirectX::XMVectorMultiply(targetDevMat.r[2], invCount);
                         targetMat += targetDevMat;
                     }
-                    if (deformCount == 0)
+                    else
                         targetMat = vmIdentity;
 
                     if (deformCache.depth > Epsilon)
@@ -3528,8 +3532,7 @@ namespace MXPBD
                             const Vector axisWeights = DirectX::XMVectorMultiply(localNormal, localNormal);
                             const float colSensitivity = DirectX::XMVectorGetX(DirectX::XMVector3Dot(physicsBones.deformSquishSensitivity[bi], axisWeights));
 
-                            float squishRatio = 1.0f - (deformCache.depth * colSensitivity);
-                            squishRatio = std::max(squishRatio, 0.01f);
+                            const float squishRatio = reciprocal(1.0f + (deformCache.depth * colSensitivity));
                             const float maxBulge = rsqrt(squishRatio);
                             const Vector maxBulgeDev = DirectX::XMVectorReplicate(maxBulge - 1.0f);
                             const Vector finalBulge = DirectX::XMVectorMultiplyAdd(maxBulgeDev, physicsBones.deformVolumePreservation[bi], vOne);
@@ -3559,7 +3562,7 @@ namespace MXPBD
                     {
                         const Vector invLength = DirectX::XMVectorReciprocalSqrt(tLengthSq);
                         tDeviation = DirectX::XMVectorMultiply(tDeviation, invLength);
-                        const Vector clampedScaleVec = DirectX::XMVectorMultiplyAdd(tDeviation, ellipseRadii, vOne);
+                        const Vector clampedScaleVec = DirectX::XMVectorAdd(tDeviation, vOne);
 
                         const Vector scaleRatios = DirectX::XMVectorMultiply(clampedScaleVec, DirectX::XMVectorReciprocal(tScaleVec));
                         targetMat.r[0] = DirectX::XMVectorMultiply(targetMat.r[0], DirectX::XMVectorSplatX(scaleRatios));
@@ -3583,12 +3586,20 @@ namespace MXPBD
                     const Vector dZ = DirectX::XMVectorSplatZ(damping);
 
                     auto ApplySpring = [&](Vector& current, Vector& velocity, const Vector& target, const Vector& k, const Vector& d) {
+                        const Vector dtVec = DirectX::XMVectorReplicate(deltaTime);
+                        const Vector dtSqVec = DirectX::XMVectorReplicate(deltaTime * deltaTime);
+
                         const Vector displacement = DirectX::XMVectorSubtract(target, current);
-                        const Vector springForce = DirectX::XMVectorMultiply(displacement, k);
-                        const Vector dampingForce = DirectX::XMVectorMultiply(velocity, d);
-                        const Vector acceleration = DirectX::XMVectorSubtract(springForce, dampingForce);
-                        velocity = DirectX::XMVectorMultiplyAdd(acceleration, dt, velocity);
-                        current = DirectX::XMVectorMultiplyAdd(velocity, dt, current);
+                        const Vector kDt = DirectX::XMVectorMultiply(k, dtVec);
+                        const Vector springImpulse = DirectX::XMVectorMultiply(kDt, displacement);
+                        const Vector numerator = DirectX::XMVectorAdd(velocity, springImpulse);
+
+                        const Vector dDt = DirectX::XMVectorMultiply(d, dtVec);
+                        const Vector kDt2 = DirectX::XMVectorMultiply(k, dtSqVec);
+                        const Vector denominator = DirectX::XMVectorAdd(vOne, DirectX::XMVectorAdd(dDt, kDt2));
+
+                        velocity = DirectX::XMVectorMultiply(numerator, DirectX::XMVectorReciprocal(denominator));
+                        current = DirectX::XMVectorMultiplyAdd(velocity, dtVec, current);
                     };
 
                     ApplySpring(currentMat.r[0], velocityMat.r[0], targetMat.r[0], kX, dX);
@@ -3609,40 +3620,28 @@ namespace MXPBD
 
                     const Vector normalizedDev = DirectX::XMVectorMultiply(deviation, DirectX::XMVectorReciprocal(currentEllipseRadii));
                     const Vector lengthSq = DirectX::XMVector3LengthSq(normalizedDev);
-
                     if (DirectX::XMVector3Greater(lengthSq, vOne))
                     {
                         const Vector invLength = DirectX::XMVectorReciprocalSqrt(lengthSq);
                         deviation = DirectX::XMVectorMultiply(deviation, invLength);
-                        const Vector clampedScaleVec = DirectX::XMVectorMultiplyAdd(deviation, currentEllipseRadii, vOne);
+                        const Vector clampedScaleVec = DirectX::XMVectorAdd(deviation, vOne);
 
                         const Vector scaleRatios = DirectX::XMVectorMultiply(clampedScaleVec, DirectX::XMVectorReciprocal(currentScaleVec));
                         currentMat.r[0] = DirectX::XMVectorMultiply(currentMat.r[0], DirectX::XMVectorSplatX(scaleRatios));
                         currentMat.r[1] = DirectX::XMVectorMultiply(currentMat.r[1], DirectX::XMVectorSplatY(scaleRatios));
                         currentMat.r[2] = DirectX::XMVectorMultiply(currentMat.r[2], DirectX::XMVectorSplatZ(scaleRatios));
-
-                        /*const Vector bounceFactor = DirectX::XMVectorReplicate(-physicsBones.collisionRestitution[bi]);
-                        velocityMat.r[0] = DirectX::XMVectorMultiply(velocityMat.r[0], bounceFactor);
-                        velocityMat.r[1] = DirectX::XMVectorMultiply(velocityMat.r[1], bounceFactor);
-                        velocityMat.r[2] = DirectX::XMVectorMultiply(velocityMat.r[2], bounceFactor);*/
                     }
 
                     currentMat.r[3] = vWone;
                     velocityMat.r[3] = vZero;
 
-                    /*if (DirectX::XMMatrixIsNaN(currentMat))
+                    if (IsInvalid(currentMat))
                     {
                         currentMat = vmIdentity;
                         velocityMat = vmZeroAll;
-                    }*/
+                    }
 
                     physicsBones.deformVelocityScale[bi] = velocityMat;
-                    /*const Vector finalSqX = DirectX::XMVector3LengthSq(currentMat.r[0]);
-                    const Vector finalSqY = DirectX::XMVector3LengthSq(currentMat.r[1]);
-                    const Vector finalSqZ = DirectX::XMVector3LengthSq(currentMat.r[2]);
-                    const Vector finalScaleSqVec = DirectX::XMVectorSet(DirectX::XMVectorGetX(finalSqX), DirectX::XMVectorGetX(finalSqY), DirectX::XMVectorGetX(finalSqZ), 0.0f);
-                    const Vector finalScaleVec = DirectX::XMVectorMax(DirectX::XMVectorSqrt(finalScaleSqVec), vEpsilon);
-                    currentMat = DirectX::XMMatrixScalingFromVector(finalScaleVec);*/
                     physicsBones.deformScale[bi] = currentMat;
                 }
             },
@@ -3654,8 +3653,6 @@ namespace MXPBD
 
     void XPBDWorld::UpdateBoneVelocity(const float deltaTime)
     {
-        // logger::info("{}", __func__);
-
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
 
@@ -3768,6 +3765,14 @@ namespace MXPBD
                         physicsBones.angVel[bi] = vZero;
                         physicsBones.predRot[bi] = physicsBones.rot[bi];
                     }
+
+                    if (IsInvalid(physicsBones.pos[bi]) ||
+                        IsInvalid(physicsBones.rot[bi]) ||
+                        IsInvalid(physicsBones.posVel[bi]) ||
+                        IsInvalid(physicsBones.angVel[bi]))
+                    {
+                        ResetBone(bi);
+                    }
                 }
             },
             tbb::static_partitioner()
@@ -3780,7 +3785,6 @@ namespace MXPBD
     {
         if (physicsBonesGroup.empty())
             return;
-        // logger::info("{}", __func__);
 
         static TimeProfiler timeProfiler(__func__);
         timeProfiler.Start();
@@ -3899,9 +3903,9 @@ namespace MXPBD
                         Vector calibWorldPos = DirectX::XMVectorAdd(DirectX::XMVector3Rotate(DirectX::XMVectorMultiply(localPos, parentWorldScale), parentWorldRot), parentWorldPos);
                         if (syncFrame)
                             calibWorldPos = DirectX::XMVectorAdd(calibWorldPos, worldPosOffset);
-                        const RE::NiPoint3 localP = ToPoint3(localPos);
+                        const RE::NiPoint3 localP = ToNiPoint(localPos);
                         const RE::NiMatrix3 localR = ToNiMatrix(localRot);
-                        const RE::NiPoint3 worldP = ToPoint3(calibWorldPos);
+                        const RE::NiPoint3 worldP = ToNiPoint(calibWorldPos);
 
                         const Matrix localScaledMat = DirectX::XMMatrixMultiply(physicsBones.deformScale[bi], ToMatrix(localRot));
                         const Matrix calibWorldMat = DirectX::XMMatrixMultiply(localScaledMat, ToMatrix(parentWorldRot));
@@ -5998,6 +6002,7 @@ namespace MXPBD
 
         physicsBones.collideCache.push_back({});
         physicsBones.deformCache.push_back({});
+        physicsBones.groundCache.push_back({});
 
         physicsBones.node.push_back(nullptr);
         physicsBones.particleName.push_back("");
@@ -6090,6 +6095,7 @@ namespace MXPBD
 
         physicsBones.collideCache.reserve(n);
         physicsBones.deformCache.reserve(n);
+        physicsBones.groundCache.reserve(n);
 
         physicsBones.node.reserve(n);
         physicsBones.particleName.reserve(n);
@@ -6371,6 +6377,10 @@ namespace MXPBD
                                 physicsBones.layerGroup[i] = tmpPhysicsBones.layerGroup[srcIdx];
                                 physicsBones.collideLayer[i] = tmpPhysicsBones.collideLayer[srcIdx];
 
+                                physicsBones.collideCache[i] = tmpPhysicsBones.collideCache[srcIdx];
+                                physicsBones.deformCache[i] = tmpPhysicsBones.deformCache[srcIdx];
+                                physicsBones.groundCache[i] = tmpPhysicsBones.groundCache[srcIdx];
+
                                 physicsBones.node[i] = tmpPhysicsBones.node[srcIdx];
                                 physicsBones.particleName[i] = tmpPhysicsBones.particleName[srcIdx];
                                 physicsBones.isParticle[i] = tmpPhysicsBones.isParticle[srcIdx];
@@ -6454,6 +6464,10 @@ namespace MXPBD
 
                     physicsBones.layerGroup.resize(validCount);
                     physicsBones.collideLayer.resize(validCount);
+
+                    physicsBones.collideCache.resize(validCount);
+                    physicsBones.deformCache.resize(validCount);
+                    physicsBones.groundCache.resize(validCount);
 
                     physicsBones.node.resize(validCount);
                     physicsBones.particleName.resize(validCount);
@@ -7171,7 +7185,6 @@ namespace MXPBD
             );
             convexHullCache.clear();
             manifoldCache.clear();
-            groundCache.clear();
             objectHashesSmall.clear();
             objectHashesLarge.clear();
         });
@@ -7277,7 +7290,7 @@ namespace MXPBD
         deformConstraints.anchData[ai].bulgeWeight = ToVector(anchData.bulgeWeight);
     }
 
-    void XPBDWorld::UpdateChildTreeData(RE::NiNode* node) const
+    void XPBDWorld::UpdateChildTreeData(RE::NiNode* node, RE::NiUpdateData ::Flag flag) const
     {
         if (!node)
             return;
@@ -7290,9 +7303,9 @@ namespace MXPBD
             RE::NiNode* childNode = child->AsNode();
             if (!childNode)
                 continue;
-            RE::NiUpdateData ctx = {0.0f, RE::NiUpdateData ::Flag::kDirty};
+            RE::NiUpdateData ctx = {0.0f, flag};
             childNode->UpdateWorldData(&ctx);
-            UpdateChildTreeData(childNode);
+            UpdateChildTreeData(childNode, flag);
         }
     }
     void XPBDWorld::UpdateChildTreeWorldTransforms(RE::NiNode* node) const

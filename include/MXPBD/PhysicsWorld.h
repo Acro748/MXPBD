@@ -50,7 +50,7 @@ namespace MXPBD {
 
         inline void SetGroundDetectRange(const float groundDetectRange) {
             WaitForPhysicsWorldAsync();
-            GROUND_DETECT_RANGE = groundDetectRange * SkyrimWorldScaleInverse;
+            GROUND_DETECT_RANGE = groundDetectRange * SkyrimWorldUnitInverse;
             groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
         }
         inline void SetGroundDetectQuality(const std::uint8_t groundDetectQuality) {
@@ -64,7 +64,7 @@ namespace MXPBD {
         }
         inline void SetWindDetectRange(const float windDetectRange) {
             WaitForPhysicsWorldAsync();
-            WIND_DETECT_RANGE = windDetectRange * SkyrimWorldScaleInverse;
+            WIND_DETECT_RANGE = windDetectRange * SkyrimWorldUnitInverse;
         }
         inline void SetWindDetectQuality(const std::uint8_t windDetectRangeQuality) {
             WaitForPhysicsWorldAsync();
@@ -95,10 +95,10 @@ namespace MXPBD {
         float ROTATION_CLAMP = 0.2f;
         float COL_CONVERGENCE = 0.25f;
 
-        float GROUND_DETECT_RANGE = 0.15f * SkyrimWorldScaleInverse;
-        std::uint32_t GROUND_DETECT_QUALITY = 1 << 5;
+        float GROUND_DETECT_RANGE = 0.15f * SkyrimWorldUnitInverse;
         Vector groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
-        const Vector groundRayTo = DirectX::XMVectorSet(0.0f, 0.0f, -5.0f, 0.0f);
+        const Vector groundRayTo = DirectX::XMVectorSet(0.0f, 0.0f, -0.05f * SkyrimWorldUnitInverse, 0.0f);
+        std::uint32_t GROUND_DETECT_QUALITY = 1 << 5;
 
         float WIND_MULTIPLIER = SkyrimWorldScaleInverse * 100.0f;
         float WIND_DETECT_RANGE = 20.0f * SkyrimWorldScaleInverse;
@@ -251,6 +251,14 @@ namespace MXPBD {
             };
             std::vector<CollideCache> collideCache;
             std::vector<CollideCache> deformCache;
+
+            struct GroundCache {
+                float height = -FLT_MAX;
+                Vector normal = vZero;
+                bool hasHit = false;
+                bool isCast = false;
+            };
+            std::vector<GroundCache> groundCache;
 
             // info
             std::vector<RE::NiPointer<RE::NiAVObject>> node;
@@ -411,14 +419,6 @@ namespace MXPBD {
         std::vector<ManifoldCache> manifoldCache;
         std::uint32_t manifoldCacheCount = 0;
 
-        struct GroundCache {
-            float height = -FLT_MAX;
-            Vector normal = vZero;
-            bool hasHit = false;
-            bool isCast = false;
-        };
-        std::vector<GroundCache> groundCache;
-
         struct LocalSpatialHash {
             float invGridSize = 0.1f;
             Vector vInvGridSize = DirectX::XMVectorReplicate(invGridSize);
@@ -512,7 +512,7 @@ namespace MXPBD {
         void RemovePhysics(const RemoveDataList& cleanList);
         void ReorderMaps();
 
-        void UpdateChildTreeData(RE::NiNode* node) const;
+        void UpdateChildTreeData(RE::NiNode* node, RE::NiUpdateData ::Flag flag) const;
         void UpdateChildTreeWorldTransforms(RE::NiNode* node) const;
 
         inline bool IsDisable(const std::uint32_t objIdx) const {

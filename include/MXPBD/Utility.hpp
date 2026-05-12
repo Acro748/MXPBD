@@ -41,7 +41,7 @@ namespace MXPBD {
         return _mm_cvtss_f32(vx1);
     }
 
-    [[nodiscard]] inline RE::NiPoint3 ToPoint3(const DirectX::XMVECTOR& v) {
+    [[nodiscard]] inline RE::NiPoint3 ToNiPoint(const DirectX::XMVECTOR& v) {
         return {DirectX::XMVectorGetX(v), DirectX::XMVectorGetY(v), DirectX::XMVectorGetZ(v)};
     }
 
@@ -109,14 +109,19 @@ namespace MXPBD {
         return m;
     }
 
+    [[nodiscard]] inline Quaternion ToQuaternion(Matrix m) {
+        const Vector xAxis = DirectX::XMVector3Normalize(m.r[0]);
+        const Vector yAxis = DirectX::XMVector3Normalize(m.r[1]);
+        const Vector zAxis = DirectX::XMVector3Normalize(DirectX::XMVector3Cross(xAxis, yAxis));
+        m.r[0] = xAxis;
+        m.r[1] = yAxis;
+        m.r[2] = zAxis;
+        m.r[3] = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+        return DirectX::XMQuaternionRotationMatrix(m);
+    }
+
     [[nodiscard]] inline Quaternion ToQuaternion(const RE::NiMatrix3& m) {
-        const Matrix xmMat = ToMatrix(m);
-        Vector s, t;
-        Quaternion r;
-        if (DirectX::XMMatrixDecompose(&s, &r, &t, xmMat)) {
-            return DirectX::XMQuaternionNormalize(r);
-        }
-        return DirectX::XMQuaternionIdentity();
+        return ToQuaternion(ToMatrix(m));
     }
 
     [[nodiscard]] inline Matrix NiTransformToMatrix(const RE::NiTransform& t) {
@@ -144,16 +149,6 @@ namespace MXPBD {
     }
     [[nodiscard]] inline RE::Actor* GetActor(RE::TESObjectREFR* object) {
         return object ? object->As<RE::Actor>() : nullptr;
-    }
-
-    [[nodiscard]] inline float sin(float x) {
-        constexpr float _4DIVPI = 4.0f / DirectX::XM_PI;
-        constexpr float _4DIVPOWPI = 4.0f / (DirectX::XM_PI * DirectX::XM_PI);
-        const float z = x * DirectX::XM_1DIV2PI;
-        x = (z - std::round(z)) * DirectX::XM_2PI;
-        float y = _4DIVPI * x - _4DIVPOWPI * x * std::abs(x);
-        y = 0.225f * (y * std::abs(y) - y) + y;
-        return y;
     }
 
     [[nodiscard]] inline std::uint32_t rand_Hash(std::uint32_t seed) {
@@ -213,7 +208,7 @@ namespace MXPBD {
     };
 
     [[nodiscard]] inline RE::NiPoint3 GetABSPoint3(const RE::NiPoint3& p3) {
-        return ToPoint3(DirectX::XMVectorAbs(ToVector(p3)));
+        return ToNiPoint(DirectX::XMVectorAbs(ToVector(p3)));
     };
 
     [[nodiscard]] inline bool IsAllZero(const RE::NiPoint3& p3) {
@@ -230,20 +225,10 @@ namespace MXPBD {
             v = negative ? vNegPi : vPi;
     }
 
-    inline Matrix CreateArbitraryAxisScaleMatrix(const Vector& localDir, float squish, float bulge) {
-        const Vector nx = DirectX::XMVectorSplatX(localDir);
-        const Vector ny = DirectX::XMVectorSplatY(localDir);
-        const Vector nz = DirectX::XMVectorSplatZ(localDir);
-        const Vector s_minus_b = DirectX::XMVectorReplicate(squish - bulge);
-
-        Vector row0 = DirectX::XMVectorMultiply(DirectX::XMVectorMultiply(nx, localDir), s_minus_b);
-        Vector row1 = DirectX::XMVectorMultiply(DirectX::XMVectorMultiply(ny, localDir), s_minus_b);
-        Vector row2 = DirectX::XMVectorMultiply(DirectX::XMVectorMultiply(nz, localDir), s_minus_b);
-
-        row0 = DirectX::XMVectorAdd(row0, DirectX::XMVectorSet(bulge, 0.0f, 0.0f, 0.0f));
-        row1 = DirectX::XMVectorAdd(row1, DirectX::XMVectorSet(0.0f, bulge, 0.0f, 0.0f));
-        row2 = DirectX::XMVectorAdd(row2, DirectX::XMVectorSet(0.0f, 0.0f, bulge, 0.0f));
-
-        return Matrix(row0, row1, row2, vWone);
+    inline bool IsInvalid(const Vector& v) {
+        return DirectX::XMVector4IsNaN(v) || DirectX::XMVector4IsInfinite(v);
+    }
+    inline bool IsInvalid(const Matrix& m) {
+        return DirectX::XMMatrixIsNaN(m) || DirectX::XMMatrixIsInfinite(m);
     }
 }
