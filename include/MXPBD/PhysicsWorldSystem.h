@@ -29,7 +29,7 @@ namespace MXPBD {
         void RemovePhysics(RE::TESObjectREFR* object, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot);
         void ReloadPhysics(RE::TESObjectREFR* object);
         void TogglePhysics(RE::TESObjectREFR* object, bool isDisable);
-        bool UpdateRawConvexHulls(RE::TESObjectREFR* object, RE::NiNode* rootNode);
+        bool UpdateRawCollider(RE::TESObjectREFR* object, RE::NiNode* rootNode);
 
     private:
         std::unique_ptr<XPBDWorld> physicsWorld;
@@ -60,7 +60,7 @@ namespace MXPBD {
                     return bipedSlot < other.bipedSlot;
                 }
                 PhysicsInput input;
-                std::vector<RawConvexHullData> rawConvexHullDatas;
+                std::vector<RawColliderData> rawColliderDatas;
             };
             std::vector<RawData> rawDatas;
             inline void sortRawDatas() {

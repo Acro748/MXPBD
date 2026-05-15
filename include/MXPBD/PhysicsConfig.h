@@ -126,7 +126,7 @@ namespace MXPBD {
         };
         std::unordered_map<std::string, Bone> bones; // boneName, bone
 
-        struct Constraint {
+        struct DistanceConstraint {
             struct AnchorData {
                 std::string anchorBoneName = "";
                 float complianceSquish = 0.0f;
@@ -140,7 +140,7 @@ namespace MXPBD {
             };
             std::vector<AnchorData> anchors;
         };
-        std::unordered_map<std::string, Constraint> constraints; // boneName, Constraint
+        std::unordered_map<std::string, DistanceConstraint> distanceConstraints; // boneName, DistanceConstraint
 
         struct AngularConstraint {
             struct AnchorData {
@@ -170,9 +170,9 @@ namespace MXPBD {
         struct Colliders {
             struct Collider {
                 std::string boneName = "";
-                std::uint8_t colliderType = 0;
+                std::uint8_t colliderType = ColliderType::kConvexHull;
                 ConvexHullDataBatch convexHullData = {};
-                SphereData sphereData;
+                SphereData sphereData = {};
             };
             std::vector<Collider> datas;
             NearBones noCollideBones;
@@ -182,7 +182,7 @@ namespace MXPBD {
         inline void merge(const PhysicsInput& other) {
             infos.append_range(other.infos);
             bones.insert_range(other.bones);
-            constraints.insert_range(other.constraints);
+            distanceConstraints.insert_range(other.distanceConstraints);
             angularConstraints.insert_range(other.angularConstraints);
             deformConstraints.insert_range(other.deformConstraints);
             for (const auto& noColBones : other.colliders.noCollideBones) {
@@ -197,17 +197,17 @@ namespace MXPBD {
             return instance;
         }
 
-        using ConstraintData = PhysicsInput::Constraint::AnchorData;
+        using DistanceConstraintData = PhysicsInput::DistanceConstraint::AnchorData;
         using AngularConstraintData = PhysicsInput::AngularConstraint::AnchorData;
         using DeformConstraintData = PhysicsInput::DeformConstraint::AnchorData;
 
         void CreateParentPhysicsBone(RE::NiNode* rootNode, PhysicsInput& input) const;
         void CreateParentConstraint(RE::NiNode* rootNode, PhysicsInput& input) const;
         void CreateOriginalConstraint(RE::NiNode* rootNode, PhysicsInput& input) const;
-        void CreateVolumeConstraint(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHull>& a_mergedConvexHulls) const;
-        void UpdateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHull>& a_mergedConvexHulls) const;
-        void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHull>& a_mergedConvexHulls) const;
-        void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawConvexHullData>& a_rawConvexHullDatas) const;
+        void CreateVolumeConstraint(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawCollider>& a_mergedConvexHulls) const;
+        void UpdateVolume(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawCollider>& a_mergedConvexHulls) const;
+        void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawCollider>& a_mergedConvexHulls) const;
+        void CreateProperties(RE::NiNode* rootNode, PhysicsInput& input, const std::vector<RawColliderData>& a_rawConvexHullDatas) const;
 
         void AssignDefaultCollisionLayerGroup(const std::uint32_t collisionLayerGroup, PhysicsInput& input);
 
@@ -216,8 +216,9 @@ namespace MXPBD {
 
         struct SMPMigration {
             PhysicsInput::Bone defaultSMPBone;
-            ConstraintData defaultSMPLinearCons;
+            DistanceConstraintData defaultSMPDistanceCons;
             AngularConstraintData defaultSMPAngularCons;
+            DeformConstraintData defaultSMPDeformCons;
             std::int32_t StiffnessChainCount = 2;
             float StiffnessStartCompliance = 3.0f;
             float StiffnessEndCompliance = 30.0f;
@@ -235,12 +236,13 @@ namespace MXPBD {
         }
 
         void GetBoneData(const Mus::lString& rootElemName, tinyxml2::XMLElement* rootElem, PhysicsInput::Bone& boneData) const;
-        void GetLinearConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, ConstraintData& consData) const;
+        void GetDistanceConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, DistanceConstraintData& consData) const;
         void GetAngularConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, AngularConstraintData& consData) const;
         void GetDeformConstraint(const Mus::lString& rootElemName, tinyxml2::XMLElement* elem, DeformConstraintData& consData) const;
+        void GetGenericConstraint(tinyxml2::XMLElement* rootElem, DistanceConstraintData& distConsData, AngularConstraintData& angConsData, DeformConstraintData& deformConsData) const;
 
         void BoneLogging(const std::string& file, const std::string_view name, const PhysicsInput::Bone& bone) const;
-        void LinearConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const ConstraintData& cons) const;
+        void DistanceConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const DistanceConstraintData& cons) const;
         void AngularConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const AngularConstraintData& cons) const;
         void DeformConstraintLogging(const std::string& file, const std::string_view A, const std::string_view B, std::uint32_t anchIdx, const DeformConstraintData& cons) const;
     };

@@ -27,11 +27,6 @@ namespace MXPBD {
         void RunPhysicsWorldAsync(const float deltaTime);
         void WaitForPhysicsWorldAsync();
 
-        inline void SetIteration(const std::uint32_t iteration) {
-            WaitForPhysicsWorldAsync();
-            ITERATION_MAX = iteration;
-        }
-
         inline void SetGridSize(const float smallGridSize, const float largeGridSize) {
             WaitForPhysicsWorldAsync();
             SMALL_GRID_SIZE = smallGridSize;
@@ -41,11 +36,6 @@ namespace MXPBD {
         inline void SetRotationClampSpeed(const float rotationClampSpeed) {
             WaitForPhysicsWorldAsync();
             ROTATION_CLAMP = ROTATION_CLAMP_DEFAULT * rotationClampSpeed;
-        }
-
-        inline void SetCollisionConvergence(const float collisionConvergence) {
-            WaitForPhysicsWorldAsync();
-            COL_CONVERGENCE = collisionConvergence;
         }
 
         inline void SetGroundDetectRange(const float groundDetectRange) {
@@ -89,11 +79,9 @@ namespace MXPBD {
     private:
         mutable std::mutex lock;
 
-        std::uint32_t ITERATION_MAX = 5;
         float SMALL_GRID_SIZE = 30.0f;
         float LARGE_GRID_SIZE = 100.0f;
         float ROTATION_CLAMP = 0.2f;
-        float COL_CONVERGENCE = 0.25f;
 
         float GROUND_DETECT_RANGE = 0.15f * SkyrimWorldUnitInverse;
         Vector groundRayFrom = DirectX::XMVectorSet(0.0f, 0.0f, GROUND_DETECT_RANGE, 0.0f);
@@ -163,7 +151,7 @@ namespace MXPBD {
             std::vector<Vector> acceleration;
             std::vector<AABB> boundingAABB;
             std::vector<std::uint8_t> isStatic;
-            std::vector<float> windMultiplier;
+            std::vector<Vector> windMultiplier;
             std::vector<std::uint8_t> maxManifoldPoints;         // collision quality by LOD / 1 - 4
             std::vector<std::uint8_t> isDisable;                 // physics disable by culling or trigger
             std::vector<std::uint8_t> isDisableByToggle;         // physics disable by trigger
@@ -247,9 +235,9 @@ namespace MXPBD {
 
             struct CollideCache {
                 Vector normal = vZero;
-                float depth = 0.0f;
+                float depth = -1.0f;
             };
-            std::vector<CollideCache> collideCache;
+            std::vector<CollideCache> frictionCache;
             std::vector<CollideCache> deformCache;
 
             struct GroundCache {
@@ -275,6 +263,9 @@ namespace MXPBD {
             std::vector<Quaternion> prevNodeWorldRot;
             std::vector<Quaternion> targetNodeWorldRot;
 
+            std::vector<Quaternion> alignRot;
+            std::vector<Quaternion> invAlignRot;
+
             std::vector<float> orgWorldScale;
             std::vector<Vector> orgLocalPos;     // backup
             std::vector<Quaternion> orgLocalRot;   // backup
@@ -285,7 +276,7 @@ namespace MXPBD {
         std::vector<std::uint32_t> physicsBonesGroup;               // physicsBonesOrder index by objIdx
         std::unique_ptr<tbb::spin_mutex[]> physicsBonesLock;
 
-        struct Constraints {
+        struct DistanceConstraints {
             std::uint32_t numConstraints = 0;
             std::vector<std::uint32_t> boneIdx;         // PhysicsBone
             std::vector<std::uint32_t> objIdx;
@@ -308,10 +299,10 @@ namespace MXPBD {
             };
             std::vector<AnchorData> anchData;         // padding by ANCHOR_MAX
         };
-        Constraints constraints;
-        std::vector<std::uint32_t> constraintsOrder;
-        std::vector<std::uint32_t> constraintsGroup;    // constraintsOrder index by objIdx
-        std::vector<std::uint32_t> constraintsColorGroup;    // constraintsOrder index by objIdx
+        DistanceConstraints distanceConstraints;
+        std::vector<std::uint32_t> distanceConstraintsOrder;
+        std::vector<std::uint32_t> distanceConstraintsGroup;
+        std::vector<std::uint32_t> distanceConstraintsColorGroup;
 
         struct AngularConstraints {
             std::uint32_t numConstraints = 0;
@@ -364,6 +355,29 @@ namespace MXPBD {
         DeformConstraints deformConstraints;
         std::vector<std::uint32_t> deformConstraintsOrder;
         std::vector<std::uint32_t> deformConstraintsGroup;
+
+        struct ShapeMatchingConstraints {
+            std::uint32_t numConstraints = 0;
+
+            std::vector<std::uint32_t> objIdx; // constraint index
+            std::vector<std::uint32_t> rootIdx; // constraint index
+
+            struct ClusterData {
+                std::uint32_t offset = 0;
+                std::uint32_t size = 0;
+                Vector compliancePositive = vZero;
+                Vector complianceNegative = vZero;
+                Vector inertiaScale = vZero;
+            };
+            std::vector<ClusterData> cluster; // constraint index
+
+            std::vector<std::uint32_t> boneIdx; // cluster index
+            std::vector<Vector> restRelativePos; // cluster index
+            std::vector<float> boneMass; // cluster index
+        };
+        ShapeMatchingConstraints shapeMatchingConstraints;
+        std::vector<std::uint32_t> shapeMatchingConstraintsOrder;
+        std::vector<std::uint32_t> shapeMatchingConstraintsGroup;
 
         struct ContactManifold {
             Vector normal = vZero;
@@ -476,8 +490,11 @@ namespace MXPBD {
         void GenerateGroundCache(const float stepCount);
         void SolveCachedCollisions(const float deltaTime);
         void SolveCachedGroundCollisions(const float deltaTime);
+        void SolveDistanceConstraints(const float invDeltaTimeSq, const bool initLambda);
+        void SolveAngularConstraints(const float invDeltaTimeSq, const bool initLambda);
         void SolveConstraints(const float deltaTime, const bool initLambda);
         void SolveAnimDrive(const float deltaTime, const bool initLambda);
+        void SolveShapeMatchingConstraint(const float deltaTime);
         void SolveDeformConstraint(const float deltaTime);
         void UpdateBoneVelocity(const float deltaTime);
         void ApplyToSkyrim(const bool syncFrame);
@@ -494,12 +511,14 @@ namespace MXPBD {
 
         std::uint32_t AllocateBone();
         void ReserveBone(std::uint32_t n);
-        std::uint32_t AllocateConstraint();
-        void ReserveConstraint(std::uint32_t n);
+        std::uint32_t AllocateDistanceConstraint();
+        void ReserveDistanceConstraint(std::uint32_t n);
         std::uint32_t AllocateAngularConstraint();
         void ReserveAngularConstraint(std::uint32_t n);
         std::uint32_t AllocateDeformConstraint();
         void ReserveDeformConstraint(std::uint32_t n);
+        std::uint32_t AllocateShapeMatchingConstraint();
+        void ReserveShapeMatchingConstraint(std::uint32_t n);
         std::uint32_t AllocateCollider();
         void ReserveCollider(std::uint32_t n);
 
@@ -532,7 +551,7 @@ namespace MXPBD {
         }
 
         void SetBone(const std::uint32_t bi, const PhysicsInput::Bone& bone);
-        void SetConstraint(const std::uint32_t ai, const PhysicsInput::Constraint::AnchorData& anchData, const float physicsScale);
+        void SetDistanceConstraint(const std::uint32_t ai, const PhysicsInput::DistanceConstraint::AnchorData& anchData, const float physicsScale);
         void SetAngularConstraint(const std::uint32_t ai, const PhysicsInput::AngularConstraint::AnchorData& anchData, const float physicsScale);
         void SetDeformConstraint(const std::uint32_t ai, const PhysicsInput::DeformConstraint::AnchorData& anchData, const float physicsScale);
 
@@ -549,8 +568,8 @@ namespace MXPBD {
                 timeCount++;
                 if (timeCount >= 1000) {
                     const auto ms = (nsSum * 0.001f) * ns2ms;
-                    logger::debug("{} time: {:.3f}ms ({} bones / {} constrants / {} angularConstrants / {} deformConstraints / {} colliders)", funcName, ms,
-                                  world->physicsBones.numBones, world->constraints.numConstraints, world->angularConstraints.numConstraints, world->deformConstraints.numConstraints, world->colliders.numColliders);
+                    logger::debug("{} time: {:.3f}ms ({} bones / {} distanceConstrants / {} angularConstrants / {} deformConstraints / {} colliders)", funcName, ms,
+                                  world->physicsBones.numBones, world->distanceConstraints.numConstraints, world->angularConstraints.numConstraints, world->deformConstraints.numConstraints, world->colliders.numColliders);
                     nsSum = 0;
                     timeCount = 0;
                 }

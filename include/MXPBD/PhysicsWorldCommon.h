@@ -17,8 +17,13 @@ namespace MXPBD {
     constexpr float SkyrimWorldUnitInverse = 1.0f / SkyrimWorldUnit;
 
     constexpr float DeltaTime60 = 1.0f / 60.0f;
+    constexpr std::uint32_t subDeltaTimeSteps = 2;
+    constexpr float subDeltaTime = DeltaTime60 / static_cast<float>(subDeltaTimeSteps);
     const std::size_t CoreCount = std::thread::hardware_concurrency();
     constexpr float Epsilon = 1e-5f;
+    constexpr float EpsilonSq = Epsilon * Epsilon;
+    constexpr float AngularEpsilon = 5e-4f;
+    constexpr float AngularEpsilonSq = AngularEpsilon * AngularEpsilon;
     constexpr float ns2ms = 1.0f / 1000000.0f;
     constexpr float toDegree = 180.0f / DirectX::XM_PI;
     constexpr float toRadian = DirectX::XM_PI / 180.0f;
@@ -26,6 +31,9 @@ namespace MXPBD {
     constexpr DirectX::XMVECTORF32 vZero = {0.0f, 0.0f, 0.0f, 0.0f};
     constexpr DirectX::XMVECTORF32 SkyrimGravity = {0.0f, 0.0f, -9.8f * SkyrimWorldScaleInverse, 0.0f};
     constexpr DirectX::XMVECTORF32 vEpsilon = {Epsilon, Epsilon, Epsilon, Epsilon};
+    constexpr DirectX::XMVECTORF32 vEpsilonSq = {EpsilonSq, EpsilonSq, EpsilonSq, EpsilonSq};
+    constexpr DirectX::XMVECTORF32 vAngularEpsilon = {AngularEpsilon, AngularEpsilon, AngularEpsilon, AngularEpsilon};
+    constexpr DirectX::XMVECTORF32 vAngularEpsilonSq = {AngularEpsilonSq, AngularEpsilonSq, AngularEpsilonSq, AngularEpsilonSq};
     constexpr DirectX::XMVECTORF32 vXone = {1.0f, 0.0f, 0.0f, 0.0f};
     constexpr DirectX::XMVECTORF32 vYone = {0.0f, 1.0f, 0.0f, 0.0f};
     constexpr DirectX::XMVECTORF32 vZone = {0.0f, 0.0f, 1.0f, 0.0f};
@@ -50,8 +58,12 @@ namespace MXPBD {
     constexpr DirectX::XMVECTORF32 vPi = {DirectX::XM_PI, DirectX::XM_PI, DirectX::XM_PI, DirectX::XM_PI};
     constexpr DirectX::XMVECTORF32 vNegPi = {-DirectX::XM_PI, -DirectX::XM_PI, -DirectX::XM_PI, -DirectX::XM_PI};
     constexpr DirectX::XMVECTORF32 vMinScale = {0.01f, 0.01f, 0.01f, 0.01f};
+    constexpr DirectX::XMVECTORU32 maskXW = {0xFFFFFFFF, 0, 0, 0xFFFFFFFF};
     constexpr DirectX::XMVECTORU32 maskYW = {0, 0xFFFFFFFF, 0, 0xFFFFFFFF};
+    constexpr DirectX::XMVECTORU32 maskZW = {0, 0, 0xFFFFFFFF, 0xFFFFFFFF};
     constexpr DirectX::XMVECTORU32 maskXZ = {0xFFFFFFFF, 0, 0xFFFFFFFF, 0};
+    constexpr DirectX::XMVECTORU32 maskYZ = {0, 0xFFFFFFFF, 0xFFFFFFFF, 0};
+    constexpr DirectX::XMVECTORU32 maskXY = {0xFFFFFFFF, 0xFFFFFFFF, 0, 0};
     constexpr DirectX::XMVECTORU32 maskW = {0, 0, 0, 0xFFFFFFFF};
     constexpr DirectX::XMVECTORU32 maskXYZ = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0};
     constexpr DirectX::XMVECTORU32 maskSign = {0x80000000, 0x80000000, 0x80000000, 0x80000000};
@@ -64,6 +76,7 @@ namespace MXPBD {
 
     const __m128i hash_primes = _mm_set_epi32(0, 83492791, 19349663, 73856093);
 
+    constexpr std::uint32_t ITERATION_MAX = 3;
     constexpr std::uint32_t ANCHOR_MAX = 4;
     constexpr std::uint32_t COL_VERTEX_MAX = 16; // COL_VERTEX_MAX = 16 * qualityLevel
     constexpr std::uint32_t COL_EDGE_MAX = 6;
@@ -76,7 +89,8 @@ namespace MXPBD {
     constexpr float COL_MARGIN_MIN = 0.5f;
     constexpr float ANGULAR_FRICTION_SCALE = 0.3f;
     constexpr float VOLUME_SCALE = 0.0001f;
-    constexpr float LINEAR_ANGULAR_COUPLING_MULT = 10.0f;
+    constexpr float COL_ROT_WEIGHT_MULT = 0.25f;
+    constexpr float COL_CONVERGENCE = 0.2f;
 
     const std::string_view cloneNodePrefix = "[MXPBD]";
     

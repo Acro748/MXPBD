@@ -111,10 +111,6 @@ namespace Mus {
                 {
                     SubtractThreadCount = GetIntValue(variableValue);
                 }
-                else if (variableName == "IterationMax")
-                {
-                    IterationMax = std::max(1u, GetUIntValue(variableValue));
-                }
                 else if (variableName == "SmallGridSize")
                 {
                     SmallGridSize = GetFloatValue(variableValue);
@@ -126,10 +122,6 @@ namespace Mus {
                 else if (variableName == "RotationClampSpeed")
                 {
                     RotationClampSpeed = GetFloatValue(variableValue);
-                }
-                else if (variableName == "CollisionConvergence")
-                {
-                    CollisionConvergence = GetFloatValue(variableValue);
                 }
                 else if (variableName == "GroundDetectRange")
                 {

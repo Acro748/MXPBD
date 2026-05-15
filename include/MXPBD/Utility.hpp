@@ -214,6 +214,12 @@ namespace MXPBD {
     [[nodiscard]] inline bool IsAllZero(const RE::NiPoint3& p3) {
         return DirectX::XMVector3LessOrEqual(DirectX::XMVectorAbs(ToVector(p3)), vEpsilon);
     };
+    [[nodiscard]] inline RE::NiPoint3 ClampP3(const RE::NiPoint3& p3, const RE::NiPoint3& min, const RE::NiPoint3& max) {
+        return ToNiPoint(DirectX::XMVectorClamp(ToVector(p3), ToVector(min), ToVector(max)));
+    };
+    [[nodiscard]] inline RE::NiPoint3 ClampP3(const RE::NiPoint3& p3, const float min, const float max) {
+        return ToNiPoint(DirectX::XMVectorClamp(ToVector(p3), DirectX::XMVectorReplicate(min), DirectX::XMVectorReplicate(max)));
+    };
 
     inline void ClampZeroToInfinity(Vector& v) {
         if (DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(v)) <= Epsilon)
@@ -230,5 +236,20 @@ namespace MXPBD {
     }
     inline bool IsInvalid(const Matrix& m) {
         return DirectX::XMMatrixIsNaN(m) || DirectX::XMMatrixIsInfinite(m);
+    }
+
+    inline Matrix ExtractRotationMatrix(Matrix m) {
+        for (std::int32_t i = 0; i < 5; ++i) {
+            Vector det;
+            const Matrix inv = DirectX::XMMatrixInverse(&det, m);
+            if (DirectX::XMVector4Less(DirectX::XMVectorAbs(det), vEpsilon))
+                break;
+            const Matrix invT = DirectX::XMMatrixTranspose(inv);
+            m.r[0] = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(m.r[0], invT.r[0]), vHalf);
+            m.r[1] = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(m.r[1], invT.r[1]), vHalf);
+            m.r[2] = DirectX::XMVectorMultiply(DirectX::XMVectorAdd(m.r[2], invT.r[2]), vHalf);
+            m.r[3] = vWone;
+        }
+        return m;
     }
 }

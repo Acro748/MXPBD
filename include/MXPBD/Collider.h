@@ -7,23 +7,8 @@ namespace MXPBD {
         kNone
     };
     ColliderType GetColliderType(const Mus::lString& str);
+    std::string GetColliderTypeStr(const std::uint8_t type);
 
-    struct PointCloud {
-        std::vector<RE::NiPoint3> vertices;
-        std::string boneName;
-    };
-    struct RawConvexHull {
-        std::vector<RE::NiPoint3> vertices;
-        std::vector<std::uint32_t> indices;
-        std::vector<std::uint32_t> orgVertexIndex; // same as vertices
-        std::string boneName;
-    };
-    struct RawConvexHullData {
-        RE::BSGeometry* geometry = nullptr; // use ptr compare only, do not access
-        std::uint64_t hash = 0;
-        std::vector<RawConvexHull> rawConvexHulls;
-        NearBones nearBones;
-    };
 #if defined(AVX512)
     struct alignas(64) ConvexHullDataBatch {
 #elif defined(AVX2) || defined(AVX)
@@ -41,14 +26,56 @@ namespace MXPBD {
     struct alignas(32) SphereData {
         float cX[COL_SPHERE_MAX], cY[COL_SPHERE_MAX], cZ[COL_SPHERE_MAX];
         float radius[COL_SPHERE_MAX];
-        std::uint8_t sphereCount = 0;
     };
 
-    void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawConvexHull& a_rawConvexHull);
-    void UpdateRawConvexHull(const PointCloud& a_orgPointCloud, const PointCloud& a_curentPointCloud, RawConvexHull& a_rawConvexHull);
-    void GenerateConvexHullBatch(const RawConvexHull& a_rawConvexHull, ConvexHullDataBatch& a_convexHullDataBatch);
+    struct RawCollider {
+        std::vector<RE::NiPoint3> vertices;
+        std::vector<std::uint32_t> indices;
+        std::vector<std::uint32_t> orgVertexIndex; // same as vertices
+        SphereData sphereData;
+        std::string boneName;
+    };
+    struct RawColliderData {
+        RE::BSGeometry* geometry = nullptr; // use ptr compare only, do not access
+        std::uint64_t hash = 0;
+        std::vector<RawCollider> rawColliders;
+        NearBones nearBones;
+    };
 
-    float GetVolume(const RawConvexHull& a_convexHull);
+    struct PointCloud {
+        std::vector<RE::NiPoint3> vertices;
+        std::string boneName;
+    };
+
+    struct VertexGroup {
+        std::vector<RE::NiPoint3> vertices;
+        RE::NiPoint3 minPt;
+        RE::NiPoint3 maxPt;
+
+        void UpdateBounds() {
+            minPt = RE::NiPoint3(FLT_MAX, FLT_MAX, FLT_MAX);
+            maxPt = RE::NiPoint3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+            for (const auto& v : vertices) {
+                minPt.x = std::min(minPt.x, v.x);
+                minPt.y = std::min(minPt.y, v.y);
+                minPt.z = std::min(minPt.z, v.z);
+                maxPt.x = std::max(maxPt.x, v.x);
+                maxPt.y = std::max(maxPt.y, v.y);
+                maxPt.z = std::max(maxPt.z, v.z);
+            }
+        }
+
+        float GetVolume() const {
+            return (maxPt.x - minPt.x) * (maxPt.y - minPt.y) * (maxPt.z - minPt.z);
+        }
+    };
+
+    void GenerateSphere(const PointCloud& a_pointCloud, RawCollider& a_rawCollider);
+    void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawCollider& a_rawCollider);
+    void UpdateRawConvexHull(const PointCloud& a_orgPointCloud, const PointCloud& a_curentPointCloud, RawCollider& a_rawCollider);
+    void GenerateConvexHullBatch(const RawCollider& a_rawCollider, ConvexHullDataBatch& a_convexHullDataBatch);
+
+    float GetVolume(const RawCollider& a_convexHull);
 
     struct BoneVertexData {
         std::unordered_map<std::string, std::vector<RE::NiPoint3>> boneVertexData;

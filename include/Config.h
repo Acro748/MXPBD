@@ -26,9 +26,6 @@ namespace Mus {
         [[nodiscard]] inline auto GetSubtractThreadCount() const noexcept {
             return SubtractThreadCount;
         }
-        [[nodiscard]] inline auto GetIterationMax() const noexcept {
-            return IterationMax;
-        }
         [[nodiscard]] inline auto GetSmallGridSize() const noexcept {
             return SmallGridSize;
         }
@@ -37,9 +34,6 @@ namespace Mus {
         }
         [[nodiscard]] inline auto GetRotationClampSpeed() const noexcept {
             return RotationClampSpeed;
-        }
-        [[nodiscard]] inline auto GetCollisionConvergence() const noexcept {
-            return CollisionConvergence;
         }
         [[nodiscard]] inline auto GetGroundDetectRange() const noexcept {
             return GroundDetectRange;
@@ -138,8 +132,8 @@ namespace Mus {
 
         static inline float GetFloatValue(std::string valuestr)
         {
-            float value = 0;
-            value = strtof(valuestr.c_str(), 0);
+            float value = 0.0f;
+            std::from_chars(valuestr.data(), valuestr.data() + valuestr.size(), value);
             return value;
         }
 

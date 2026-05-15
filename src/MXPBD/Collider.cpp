@@ -12,21 +12,114 @@ namespace MXPBD
             return ColliderType::kSphere;
         return ColliderType::kNone;
     }
+    std::string GetColliderTypeStr(const std::uint8_t type)
+    {
+        switch (type)
+        {
+        case ColliderType::kConvexHull:
+            return "ConvexHull";
+            break;
+        case ColliderType::kSphere:
+            return "Sphere";
+            break;
+        default:
+            break;
+        }
+        return "None";
+    }
 
-    void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawConvexHull& a_rawConvexHull)
+    void GenerateSphere(const PointCloud& a_pointCloud, RawCollider& a_rawCollider)
+    {
+        if (a_pointCloud.vertices.empty())
+            return;
+
+        std::vector<VertexGroup> groups;
+        VertexGroup initialGroup;
+        initialGroup.vertices = a_pointCloud.vertices;
+        initialGroup.UpdateBounds();
+        groups.push_back(initialGroup);
+
+        while (groups.size() < COL_SPHERE_MAX)
+        {
+            float maxVolume = -1.0f;
+            std::size_t splitIdx = 0;
+            for (std::size_t i = 0; i < groups.size(); ++i)
+            {
+                float vol = groups[i].GetVolume();
+                if (vol > maxVolume && groups[i].vertices.size() >= 2)
+                {
+                    maxVolume = vol;
+                    splitIdx = i;
+                }
+            }
+            if (maxVolume < 0.0f)
+                break;
+
+            VertexGroup toSplit = groups[splitIdx];
+            groups.erase(groups.begin() + splitIdx);
+            RE::NiPoint3 extents = toSplit.maxPt - toSplit.minPt;
+            int axis = 0;
+            if (extents.y > extents.x && extents.y > extents.z)
+                axis = 1;
+            else if (extents.z > extents.x && extents.z > extents.y)
+                axis = 2;
+            auto comparator = [axis](const RE::NiPoint3& a, const RE::NiPoint3& b) {
+                if (axis == 0)
+                    return a.x < b.x;
+                if (axis == 1)
+                    return a.y < b.y;
+                return a.z < b.z;
+            };
+
+            std::size_t mid = toSplit.vertices.size() / 2;
+            std::nth_element(toSplit.vertices.begin(), toSplit.vertices.begin() + mid, toSplit.vertices.end(), comparator);
+
+            VertexGroup groupA, groupB;
+            groupA.vertices.assign(toSplit.vertices.begin(), toSplit.vertices.begin() + mid);
+            groupB.vertices.assign(toSplit.vertices.begin() + mid, toSplit.vertices.end());
+
+            groupA.UpdateBounds();
+            groupB.UpdateBounds();
+
+            groups.push_back(groupA);
+            groups.push_back(groupB);
+        }
+
+        for (std::size_t i = 0; i < groups.size(); ++i)
+        {
+            RE::NiPoint3 center = (groups[i].minPt + groups[i].maxPt) * 0.5f;
+
+            float maxDistSq = 0.0f;
+            for (const auto& v : groups[i].vertices)
+            {
+                float distSq = (v - center).SqrLength();
+                if (distSq > maxDistSq)
+                {
+                    maxDistSq = distSq;
+                }
+            }
+
+            a_rawCollider.sphereData.cX[i] = center.x;
+            a_rawCollider.sphereData.cY[i] = center.y;
+            a_rawCollider.sphereData.cZ[i] = center.z;
+            a_rawCollider.sphereData.radius[i] = std::sqrt(maxDistSq);
+        }
+    }
+
+    void GenerateRawConvexHull(const PointCloud& a_pointCloud, RawCollider& a_rawCollider)
     {
         quickhull::QuickHull<float> qh;
         auto qhull = qh.getConvexHull(reinterpret_cast<const float*>(a_pointCloud.vertices.data()), a_pointCloud.vertices.size(), false, false);
         auto& qhVertices = qhull.getVertexBuffer();
         auto& qhIndices = qhull.getIndexBuffer();
 
-        a_rawConvexHull.boneName = a_pointCloud.boneName;
-        a_rawConvexHull.indices.assign_range(qhIndices);
-        a_rawConvexHull.vertices.reserve(qhVertices.size());
-        a_rawConvexHull.orgVertexIndex.reserve(qhVertices.size());
+        a_rawCollider.boneName = a_pointCloud.boneName;
+        a_rawCollider.indices.assign_range(qhIndices);
+        a_rawCollider.vertices.reserve(qhVertices.size());
+        a_rawCollider.orgVertexIndex.reserve(qhVertices.size());
         for (const auto& qhv : qhVertices)
         {
-            a_rawConvexHull.vertices.push_back(RE::NiPoint3(qhv.x, qhv.y, qhv.z));
+            a_rawCollider.vertices.push_back(RE::NiPoint3(qhv.x, qhv.y, qhv.z));
 
             for (std::uint32_t i = 0; i < a_pointCloud.vertices.size(); ++i)
             {
@@ -34,55 +127,55 @@ namespace MXPBD
                     std::abs(qhv.y - a_pointCloud.vertices[i].y) < 0.0001f &&
                     std::abs(qhv.z - a_pointCloud.vertices[i].z) < 0.0001f)
                 {
-                    a_rawConvexHull.orgVertexIndex.push_back(i);
+                    a_rawCollider.orgVertexIndex.push_back(i);
                     break;
                 }
             }
         }
-        //writeWaveformOBJ("Data\\SKSE\\Plugins\\MXPBD\\TEST\\" + a_pointCloud.boneName + ".obj", a_pointCloud.boneName, a_rawConvexHull.vertices, a_rawConvexHull.indices);
+        //writeWaveformOBJ("Data\\SKSE\\Plugins\\MXPBD\\TEST\\" + a_pointCloud.boneName + ".obj", a_pointCloud.boneName, a_rawCollider.vertices, a_rawCollider.indices);
     }
 
-    void UpdateRawConvexHull(const PointCloud& a_orgPointCloud, const PointCloud& a_curentPointCloud, RawConvexHull& a_rawConvexHull)
+    void UpdateRawConvexHull(const PointCloud& a_orgPointCloud, const PointCloud& a_curentPointCloud, RawCollider& a_rawCollider)
     {
-        if (a_rawConvexHull.orgVertexIndex.empty())
+        if (a_rawCollider.orgVertexIndex.empty())
             return;
-        if (a_rawConvexHull.orgVertexIndex.size() > a_rawConvexHull.vertices.size())
+        if (a_rawCollider.orgVertexIndex.size() > a_rawCollider.vertices.size())
             return;
-        const std::uint32_t orgVertIdxSize = a_rawConvexHull.orgVertexIndex.size();
+        const std::uint32_t orgVertIdxSize = a_rawCollider.orgVertexIndex.size();
         for (std::uint32_t i = 0; i < orgVertIdxSize; ++i)
         {
-            std::uint32_t idx = a_rawConvexHull.orgVertexIndex[i];
+            std::uint32_t idx = a_rawCollider.orgVertexIndex[i];
             if (idx >= a_orgPointCloud.vertices.size() || idx >= a_curentPointCloud.vertices.size())
                 continue;
-            a_rawConvexHull.vertices[i] += a_curentPointCloud.vertices[idx] - a_orgPointCloud.vertices[idx];
+            a_rawCollider.vertices[i] += a_curentPointCloud.vertices[idx] - a_orgPointCloud.vertices[idx];
         }
     }
 
-    void GenerateConvexHullBatch(const RawConvexHull& a_rawConvexHull, ConvexHullDataBatch& a_convexHullDataBatch)
+    void GenerateConvexHullBatch(const RawCollider& a_rawCollider, ConvexHullDataBatch& a_convexHullDataBatch)
     {
         constexpr std::uint32_t targetTriCount = (COL_VERTEX_MAX * 2) - 4;
         constexpr std::uint32_t targetIndexCount = targetTriCount * 3;
-        std::vector<std::uint32_t> decimatedIndices(a_rawConvexHull.indices.size());
+        std::vector<std::uint32_t> decimatedIndices(a_rawCollider.indices.size());
         float maxError = 0.05f;
         std::size_t newIndexCount = 0;
         while (maxError <= 1.0f)
         {
-            newIndexCount = meshopt_simplify(decimatedIndices.data(), a_rawConvexHull.indices.data(), a_rawConvexHull.indices.size(), reinterpret_cast<const float*>(a_rawConvexHull.vertices.data()), a_rawConvexHull.vertices.size(), sizeof(a_rawConvexHull.vertices[0]), targetIndexCount, maxError);
+            newIndexCount = meshopt_simplify(decimatedIndices.data(), a_rawCollider.indices.data(), a_rawCollider.indices.size(), reinterpret_cast<const float*>(a_rawCollider.vertices.data()), a_rawCollider.vertices.size(), sizeof(a_rawCollider.vertices[0]), targetIndexCount, maxError);
             if (newIndexCount <= targetIndexCount)
                 break;
             maxError *= 2.0f;
         }
         decimatedIndices.resize(newIndexCount);
-        std::vector<uint32_t> remapTable(a_rawConvexHull.vertices.size());
+        std::vector<uint32_t> remapTable(a_rawCollider.vertices.size());
         std::size_t finalVertexCount = meshopt_optimizeVertexFetchRemap(
             &remapTable[0],
             decimatedIndices.data(),
             decimatedIndices.size(),
-            a_rawConvexHull.vertices.size());
+            a_rawCollider.vertices.size());
         std::vector<RE::NiPoint3> a_outVertices(finalVertexCount);
         std::vector<std::uint32_t> a_outIndices(decimatedIndices.size());
         meshopt_remapIndexBuffer(a_outIndices.data(), decimatedIndices.data(), decimatedIndices.size(), &remapTable[0]);
-        meshopt_remapVertexBuffer(a_outVertices.data(), reinterpret_cast<const float*>(a_rawConvexHull.vertices.data()), a_rawConvexHull.vertices.size(), sizeof(a_rawConvexHull.vertices[0]), &remapTable[0]);
+        meshopt_remapVertexBuffer(a_outVertices.data(), reinterpret_cast<const float*>(a_rawCollider.vertices.data()), a_rawCollider.vertices.size(), sizeof(a_rawCollider.vertices[0]), &remapTable[0]);
     
         quickhull::QuickHull<float> qh_final;
         auto qhull_final = qh_final.getConvexHull(reinterpret_cast<const float*>(a_outVertices.data()), a_outVertices.size(), false, false);
@@ -94,7 +187,7 @@ namespace MXPBD
         {
             finalConvexVerts[i] = RE::NiPoint3(finalVerts[i].x, finalVerts[i].y, finalVerts[i].z);
         }
-        // writeWaveformOBJ("Data\\SKSE\\Plugins\\MXPBD\\TEST\\" + a_rawConvexHull.boneName + ".obj", a_rawConvexHull.boneName, finalConvexVerts, finalIndices);
+        // writeWaveformOBJ("Data\\SKSE\\Plugins\\MXPBD\\TEST\\" + a_rawCollider.boneName + ".obj", a_rawCollider.boneName, finalConvexVerts, finalIndices);
 
         const std::uint8_t vCount = static_cast<std::uint8_t>(std::min(finalConvexVerts.size(), static_cast<std::size_t>(COL_VERTEX_MAX)));
         for (std::uint8_t v = 0; v < vCount; ++v)
@@ -262,16 +355,16 @@ namespace MXPBD
         }
     }
 
-    float GetVolume(const RawConvexHull& a_convexHull)
+    float GetVolume(const RawCollider& a_rawCollider)
     {
-        if (a_convexHull.indices.size() % 3 != 0 || a_convexHull.vertices.empty())
+        if (a_rawCollider.indices.size() % 3 != 0 || a_rawCollider.vertices.empty())
             return 0.0f;
         float totalVolume = 0.0f;
-        for (std::size_t i = 0; i < a_convexHull.indices.size(); i += 3)
+        for (std::size_t i = 0; i < a_rawCollider.indices.size(); i += 3)
         {
-            const Vector p1 = ToVector(a_convexHull.vertices[a_convexHull.indices[i + 0]]);
-            const Vector p2 = ToVector(a_convexHull.vertices[a_convexHull.indices[i + 1]]);
-            const Vector p3 = ToVector(a_convexHull.vertices[a_convexHull.indices[i + 2]]);
+            const Vector p1 = ToVector(a_rawCollider.vertices[a_rawCollider.indices[i + 0]]);
+            const Vector p2 = ToVector(a_rawCollider.vertices[a_rawCollider.indices[i + 1]]);
+            const Vector p3 = ToVector(a_rawCollider.vertices[a_rawCollider.indices[i + 2]]);
             const Vector cross = DirectX::XMVector3Cross(p2, p3);
             const Vector dot = DirectX::XMVector3Dot(p1, cross);
             totalVolume += DirectX::XMVectorGetX(dot);
@@ -379,7 +472,7 @@ namespace MXPBD
             if (auto dynamicTri = geometry->AsDynamicTriShape(); dynamicTri)
             {
                 RE::BSFaceGenBaseMorphExtraData* fodData = netimmerse_cast<RE::BSFaceGenBaseMorphExtraData*>(dynamicTri->GetExtraData("FOD"));
-                if (fodData)
+                if (fodData && fodData->vertexData)
                     dynamicData1 = fodData->vertexData;
                 else if (dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData)
                     dynamicData2 = reinterpret_cast<DirectX::XMFLOAT4*>(dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData);
@@ -547,7 +640,7 @@ namespace MXPBD
             if (auto dynamicTri = a_geometry->AsDynamicTriShape(); dynamicTri)
             {
                 RE::BSFaceGenBaseMorphExtraData* fodData = netimmerse_cast<RE::BSFaceGenBaseMorphExtraData*>(dynamicTri->GetExtraData("FOD"));
-                if (fodData)
+                if (fodData && fodData->vertexData)
                     dynamicData1 = fodData->vertexData;
                 else if (dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData)
                     dynamicData2 = reinterpret_cast<DirectX::XMFLOAT4*>(dynamicTri->GetDynamicTrishapeRuntimeData().dynamicData);
