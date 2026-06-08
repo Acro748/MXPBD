@@ -25,9 +25,13 @@ namespace MXPBD
         isAsyncPhysics = Mus::Config::GetSingleton().GetSubtractThreadCount() >= 0;
         physicsWorld->SetThreads(Mus::Config::GetSingleton().GetSubtractThreadCount());
 
+        physicsWorld->SetDebugMode(Mus::Config::GetSingleton().GetLogLevel() <= spdlog::level::level_enum::debug);
+
         physicsWorld->SetGridSize(Mus::Config::GetSingleton().GetSmallGridSize(), Mus::Config::GetSingleton().GetLargeGridSize());
 
         physicsWorld->SetRotationClampSpeed(Mus::Config::GetSingleton().GetRotationClampSpeed());
+
+        physicsWorld->SetCollisionConvergence(Mus::Config::GetSingleton().GetCollisionConvergence());
 
         physicsWorld->SetGroundDetectRange(Mus::Config::GetSingleton().GetGroundDetectRange());
         physicsWorld->SetGroundDetectQuality(Mus::Config::GetSingleton().GetGroundDetectQuality());
@@ -64,34 +68,6 @@ namespace MXPBD
         }
         if (isAddCollider)
             AddColliders(object, rootNode);
-    }
-
-    void XPBDWorldSystem::UpdatePhysicsSetting(RE::TESObjectREFR* object, PhysicsInput input)
-    {
-        if (input.bones.empty() && input.distanceConstraints.empty())
-            return;
-        if (!object || !object->loadedData || !object->loadedData->data3D)
-            return;
-        auto rootNode = object->loadedData->data3D->AsNode();
-        if (!rootNode)
-            return;
-        std::vector<RawColliderData> rawColliderDatas;
-        {
-            ObjectData::RawData targetCollider = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
-            std::unique_lock ul(objectDatasLock);
-            ObjectDataPtr objData = FindObjectDataPtr_unsafe(object);
-            if (!objData)
-                return;
-            std::lock_guard lg(objData->lock);
-            ul.unlock();
-            auto found = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), targetCollider);
-            if (found != objData->rawDatas.end())
-            {
-                rawColliderDatas = found->rawColliderDatas;
-            }
-        }
-        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, input, rawColliderDatas);
-        physicsWorld->UpdatePhysicsSetting(object, input, false);
     }
 
     void XPBDWorldSystem::Reset() const
@@ -365,19 +341,16 @@ namespace MXPBD
         RE::BSGeometry* origGeom = nullptr;
         bool isFMD = false;
         auto fmd = geo->GetExtraData<RE::BSFaceGenModelExtraData>("FMD");
-        if (fmd && fmd->m_model && fmd->m_model->modelMeshData)
+        if (fmd && fmd->m_model && fmd->m_model->modelMeshData && fmd->m_model->modelMeshData->faceNode)
         {
             origRootNode = fmd->m_model->modelMeshData->faceNode.get();
             isFMD = true;
-            if (origRootNode)
+            for (auto& child : origRootNode->GetChildren())
             {
-                for (auto& child : origRootNode->GetChildren())
+                if (child && child->AsGeometry())
                 {
-                    if (child && child->AsGeometry())
-                    {
-                        origGeom = child->AsGeometry();
-                        break;
-                    }
+                    origGeom = child->AsGeometry();
+                    break;
                 }
             }
         }
@@ -535,6 +508,8 @@ namespace MXPBD
 
     void XPBDWorldSystem::RemoveRenameMap(RenameStringMap& map, std::string_view prefix) const 
     {
+        if (IsHDTSMPEnabled)
+            return;
         for (auto it = map.begin(); it != map.end();)
         {
             if (it->first.starts_with(prefix))
@@ -557,8 +532,9 @@ namespace MXPBD
                 return;
         }
         ObjectData::RawData data = {.rootType = XPBDWorld::RootType::kSkeleton, .bipedSlot = 0};
-        data.input = Mus::ConditionManager::GetSingleton().GetCondition(GetActor(object));
-        PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kSkeleton, data.input);
+        data.rawPhysicsInput = Mus::ConditionManager::GetSingleton().GetPhysicsInput(GetActor(object));
+        data.rawDriverInput = Mus::ConditionManager::GetSingleton().GetDriverInput(GetActor(object));
+        PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kSkeleton, data.rawPhysicsInput);
         data.bipedSlot = 0;
         std::vector<RawColliderData> rawColliderDatas;
         {
@@ -576,13 +552,15 @@ namespace MXPBD
                 {
                     if (!it->rootNode && npcNode)
                         it->rootNode = RE::NiPointer(npcNode);
-                    it->input = data.input;
+                    it->rawPhysicsInput = data.rawPhysicsInput;
+                    it->rawDriverInput = data.rawDriverInput;
                 }
                 else
                 {
                     if (npcNode)
                         target.rootNode = RE::NiPointer(npcNode);
-                    target.input = data.input;
+                    target.rawPhysicsInput = data.rawPhysicsInput;
+                    target.rawDriverInput = data.rawDriverInput;
                     objData->rawDatas.push_back(target);
                     objData->sortRawDatas();
                 }
@@ -596,8 +574,9 @@ namespace MXPBD
                 }
             }
         }
-        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, data.input, rawColliderDatas);
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kSkeleton, data.input);
+        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, data.rawPhysicsInput, rawColliderDatas);
+        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kSkeleton, data.rawPhysicsInput);
+        physicsWorld->AddDriver(object, XPBDWorld::RootType::kSkeleton, data.rawDriverInput);
     }
 
     void XPBDWorldSystem::AddFacegenPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode)
@@ -613,6 +592,7 @@ namespace MXPBD
                 return;
         }
         PhysicsInput newInput;
+        DriverInput newDriverInput;
         std::vector<RawColliderData> rawColliderDatas;
         {
             std::unique_lock ul(objectDatasLock);
@@ -626,7 +606,8 @@ namespace MXPBD
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it == objData->rawDatas.end())
                     return;
-                newInput = it->input;
+                newInput = it->rawPhysicsInput;
+                newDriverInput = it->rawDriverInput;
             }
             {
                 ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
@@ -638,8 +619,10 @@ namespace MXPBD
             }
         }
         newInput.bipedSlot = 0;
+        newDriverInput.bipedSlot = 0;
         PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, rawColliderDatas);
         physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kFacegen, newInput);
+        physicsWorld->AddDriver(object, XPBDWorld::RootType::kFacegen, newDriverInput);
     }
 
     void XPBDWorldSystem::AddClothPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const std::uint32_t bipedSlot)
@@ -649,6 +632,7 @@ namespace MXPBD
         if (!rootNode)
             return;
         PhysicsInput newInput;
+        DriverInput newDriverInput;
         std::vector<RawColliderData> rawColliderDatas;
         {
             std::unique_lock ul(objectDatasLock);
@@ -662,7 +646,8 @@ namespace MXPBD
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
                 if (it == objData->rawDatas.end())
                     return;
-                newInput = it->input;
+                newInput = it->rawPhysicsInput;
+                newDriverInput = it->rawDriverInput;
             }
             {
                 ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
@@ -674,8 +659,10 @@ namespace MXPBD
             }
         }
         newInput.bipedSlot = bipedSlot;
+        newDriverInput.bipedSlot = bipedSlot;
         PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, rawColliderDatas);
         physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kCloth, newInput);
+        physicsWorld->AddDriver(object, XPBDWorld::RootType::kCloth, newDriverInput);
     }
 
     void XPBDWorldSystem::AddColliders(RE::TESObjectREFR* object, RE::NiNode* rootNode)
@@ -692,6 +679,7 @@ namespace MXPBD
         }
 
         PhysicsInput newInput;
+        DriverInput newDriverInput;
         {
             std::unique_lock ul(objectDatasLock);
             const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(object);
@@ -701,7 +689,8 @@ namespace MXPBD
             ul.unlock();
             for (const auto& rawData : objData->rawDatas)
             {
-                newInput.merge(rawData.input);
+                newInput.merge(rawData.rawPhysicsInput);
+                newDriverInput.merge(rawData.rawDriverInput);
             }
             const ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
@@ -714,15 +703,15 @@ namespace MXPBD
                 {
                     pointClouds[rawConvexHull.boneName].boneName = rawConvexHull.boneName;
                     pointClouds[rawConvexHull.boneName].vertices.append_range(rawConvexHull.vertices);
-                }
-                for (const auto& nearBone : rawColliderData.nearBones)
-                {
-                    newInput.colliders.noCollideBones[nearBone.first].insert(nearBone.second.begin(), nearBone.second.end());
+                    pointClouds[rawConvexHull.boneName].nearBones.insert_range(rawConvexHull.nearBones);
+                    newInput.colliders.noCollideBones[rawConvexHull.boneName].insert_range(rawConvexHull.nearBones);
                 }
             }
+            std::vector<RawCollider> mergedRawColliders;
             for (auto& pc : pointClouds)
             {
                 RawCollider mergedRawCollider;
+                GenerateSphere(pc.second, mergedRawCollider);
                 GenerateRawConvexHull(pc.second, mergedRawCollider);
                 PhysicsInput::Colliders::Collider newCollider = {
                     .boneName = pc.second.boneName,
@@ -731,18 +720,22 @@ namespace MXPBD
                 };
                 GenerateConvexHullBatch(mergedRawCollider, newCollider.convexHullData);
                 newInput.colliders.datas.push_back(std::move(newCollider));
+                mergedRawColliders.push_back(std::move(mergedRawCollider));
             }
+            PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, mergedRawColliders);
             for (auto& colliderData : newInput.colliders.datas)
             {
-                auto bit = newInput.bones.find(colliderData.boneName);
-                if (bit == newInput.bones.end())
+                if (auto bit = newInput.bones.find(colliderData.boneName); bit != newInput.bones.end())
+                {
+                    colliderData.colliderType = bit->second.colliderType;
                     continue;
-                colliderData.colliderType = bit->second.colliderType;
+                }
             }
-            it->input = newInput;
+            /*it->rawPhysicsInput = newInput;
+            it->rawDriverInput = newDriverInput;*/
         }
 
-        physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kCollider, newInput);
+        physicsWorld->AddCollider(object, newInput);
     }
 
     void XPBDWorldSystem::ReloadPhysics(RE::TESObjectREFR* object)
@@ -763,10 +756,10 @@ namespace MXPBD
             ul.unlock();
             for (auto& rawData : objData->rawDatas)
             {
-                if (rawData.input.infos.empty())
+                if (rawData.rawPhysicsInput.infos.empty())
                     continue;
                 bool firstRead = true;
-                for (const auto& info : rawData.input.infos)
+                for (const auto& info : rawData.rawPhysicsInput.infos)
                 {
                     if (info.inputPath.empty())
                         continue;
@@ -784,13 +777,13 @@ namespace MXPBD
                     if (firstRead)
                     {
                         firstRead = false;
-                        rawData.input = newInput;
+                        rawData.rawPhysicsInput = newInput;
                     }
                     else
                     {
-                        rawData.input.merge(newInput);
+                        rawData.rawPhysicsInput.merge(newInput);
                     }
-                    PhysicsConfigReader::GetSingleton().FixBoneName(rawData.input, objData->renameMap);
+                    PhysicsConfigReader::GetSingleton().FixBoneName(rawData.rawPhysicsInput, objData->renameMap);
                 }
                 ObjectData::RawData copyRawData = {.rootType = rawData.rootType, .bipedSlot = rawData.bipedSlot};
                 copyRawDatas.push_back(copyRawData);
@@ -799,7 +792,7 @@ namespace MXPBD
         physicsWorld->RemovePhysics(object->formID);
         for (std::uint32_t i = 0; i < copyRawDatas.size(); ++i)
         {
-            AddPhysics(object, rootNode, copyRawDatas[i].rootType, copyRawDatas[i].bipedSlot, (copyRawDatas.size() - 1ull) == i);
+            AddPhysics(object, rootNode, copyRawDatas[i].rootType, copyRawDatas[i].bipedSlot, copyRawDatas[i].rootType == XPBDWorld::RootType::kCollider);
         }
     }
 
@@ -813,6 +806,8 @@ namespace MXPBD
 
         std::vector<RawCollider> mergedRawColliders;
         PhysicsInput newInput;
+        DriverInput newDriverInput;
+        std::unordered_map<std::string, std::unordered_set<std::string>> noCollideBones;
         {
             std::unique_lock ul(objectDatasLock);
             const ObjectDataPtr objData = GetOrCreateObjectDataPtr_unsafe(object);
@@ -822,7 +817,8 @@ namespace MXPBD
             ul.unlock();
             for (const auto& rawData : objData->rawDatas)
             {
-                newInput.merge(rawData.input);
+                newInput.merge(rawData.rawPhysicsInput);
+                newDriverInput.merge(rawData.rawDriverInput);
             }
             const ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
@@ -835,15 +831,14 @@ namespace MXPBD
                 {
                     pointClouds[rawConvexHull.boneName].boneName = rawConvexHull.boneName;
                     pointClouds[rawConvexHull.boneName].vertices.append_range(rawConvexHull.vertices);
-                }
-                for (const auto& nearBone : rawColliderData.nearBones)
-                {
-                    newInput.colliders.noCollideBones[nearBone.first].insert(nearBone.second.begin(), nearBone.second.end());
+                    pointClouds[rawConvexHull.boneName].nearBones.insert_range(rawConvexHull.nearBones);
+                    noCollideBones[rawConvexHull.boneName].insert_range(rawConvexHull.nearBones);
                 }
             }
             for (auto& pc : pointClouds)
             {
                 RawCollider mergedRawCollider;
+                mergedRawCollider.nearBones = pc.second.nearBones;
                 GenerateSphere(pc.second, mergedRawCollider);
                 GenerateRawConvexHull(pc.second, mergedRawCollider);
                 PhysicsInput::Colliders::Collider newCollider = {
@@ -855,6 +850,7 @@ namespace MXPBD
                 newInput.colliders.datas.push_back(std::move(newCollider));
                 mergedRawColliders.push_back(std::move(mergedRawCollider));
             }
+            PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, mergedRawColliders);
             for (auto& colliderData : newInput.colliders.datas)
             {
                 auto bit = newInput.bones.find(colliderData.boneName);
@@ -862,13 +858,17 @@ namespace MXPBD
                     continue;
                 colliderData.colliderType = bit->second.colliderType;
             }
-            it->input = newInput;
+            /*it->rawPhysicsInput = newInput;
+            it->rawDriverInput = newDriverInput;*/
         }
 
-        PhysicsConfigReader::GetSingleton().CreateProperties(rootNode, newInput, mergedRawColliders);
+        for (const auto& noCollideBone : noCollideBones)
+        {
+            newInput.colliders.noCollideBones[noCollideBone.first].insert(noCollideBone.second.begin(), noCollideBone.second.end());
+        }
         physicsWorld->UpdatePhysicsSetting(object, newInput);
         if (isAddCollider)
-            physicsWorld->AddPhysics(object, rootNode, XPBDWorld::RootType::kCollider, newInput);
+            physicsWorld->AddCollider(object, newInput);
     }
 
     void XPBDWorldSystem::TogglePhysics(RE::TESObjectREFR* object, bool isDisable)
@@ -900,6 +900,33 @@ namespace MXPBD
 
         ObjectData::RawData target = {.rootType = XPBDWorld::RootType::kCollider, .bipedSlot = 0};
         std::vector<RE::BSGeometry*> geometries = GetGeometries(rootNode);
+        {
+            bool hasWig = false;
+            std::vector<RE::BSGeometry*> hairGeometries;
+            for (auto& geo : geometries)
+            {
+                if (!geo)
+                    continue;
+                const std::uint32_t bipedSlot = GetBipedSlot(geo);
+                const bool isDynamicTri = geo->AsDynamicTriShape() ? true : false;
+                if (bipedSlot == RE::BIPED_OBJECT::kHair)
+                {
+                    if (!isDynamicTri)
+                        hasWig = true;
+                    else
+                        hairGeometries.push_back(geo);
+                }
+            }
+            if (hasWig)
+            {
+                for (auto& geo : hairGeometries)
+                {
+                    auto it = std::find(geometries.begin(), geometries.end(), geo);
+                    if (it != geometries.end())
+                        geometries.erase(it);
+                }
+            }
+        }
         {
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), target);
             if (it != objData->rawDatas.end())
@@ -939,13 +966,12 @@ namespace MXPBD
             newRawColliderData.hash = GetGeometryHash(geo);
 
             BoneVertexData boneVertData = GetGeometryData(geo);
-            newRawColliderData.nearBones = boneVertData.nearBones;
-
             auto pointClouds = ConvertPointClouds(boneVertData);
             newRawColliderData.rawColliders.reserve(pointClouds.size());
             for (auto& pc : pointClouds)
             {
                 RawCollider newRawCollider;
+                newRawCollider.nearBones = pc.nearBones;
                 GenerateSphere(pc, newRawCollider);
                 GenerateRawConvexHull(pc, newRawCollider);
                 newRawColliderData.rawColliders.push_back(newRawCollider);
@@ -1052,10 +1078,10 @@ namespace MXPBD
     {
         if (e.gamePaused && !std::atomic_ref(isRaceSexMenuOpen).load())
         {
-            /*if (isAsyncPhysics)
+            if (isAsyncPhysics)
                 physicsWorld->RunPhysicsWorldAsync(0);
             else
-                physicsWorld->RunPhysicsWorld(0);*/
+                physicsWorld->RunPhysicsWorld(0);
         }
         else
         {
@@ -1066,7 +1092,7 @@ namespace MXPBD
                 return;
             }
 
-            static TimeProfiler timeProfiler(__func__);
+            static Internal::TimeProfiler timeProfiler(__func__);
             timeProfiler.Start();
 
             CheckObjectState();
@@ -1085,7 +1111,7 @@ namespace MXPBD
                     physicsWorld->SetWind(0.0f, 0.0f);
             }
 
-            timeProfiler.End(this);
+            timeProfiler.End([&](const std::string& funcName, const double ms) { logger::debug("{} time: {:.3f}ms", funcName, ms); });
 
             const float deltaTime = std::min(RE::GetSecondsSinceLastFrame(), 0.1f);
             if (isAsyncPhysics)
@@ -1119,9 +1145,12 @@ namespace MXPBD
                     if (it->rootNode != data.rootNode)
                     {
                         *it = data;
-                        const std::string prefix = GetFacegenCloneNodePrefix();
-                        RemoveRenameMap(objData->renameMap, prefix);
-                        RemoveMergedNode(e.root, prefix);
+                        if (!IsHDTSMPEnabled)
+                        {
+                            const std::string prefix = GetFacegenCloneNodePrefix();
+                            RemoveRenameMap(objData->renameMap, prefix);
+                            RemoveMergedNode(e.root, prefix);
+                        }
                         physicsWorld->RemovePhysics(object->formID, XPBDWorld::RootType::kFacegen, 0);
                     }
                 }
@@ -1133,6 +1162,7 @@ namespace MXPBD
             }
 
             PhysicsInput newInput = {};
+            DriverInput newDriverInput;
             RenameStringMap renameMap = {};
             MergeFacegenNodeTree(e.root, e.facegenNiNode, e.geometry, newInput, renameMap);
 
@@ -1149,7 +1179,8 @@ namespace MXPBD
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
                 if (it != objData->rawDatas.end())
                 {
-                    it->input.merge(newInput);
+                    it->rawPhysicsInput.merge(newInput);
+                    it->rawDriverInput.merge(newDriverInput);
                 }
             }
         }
@@ -1175,14 +1206,18 @@ namespace MXPBD
                 auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), findData);
                 if (it != objData->rawDatas.end())
                 {
-                    const std::string prefix = GetArmorCloneNodePrefix(e.bipedSlot);
-                    RemoveRenameMap(objData->renameMap, prefix);
-                    RemoveMergedNode(e.skeleton, prefix);
+                    if (!IsHDTSMPEnabled)
+                    {
+                        const std::string prefix = GetArmorCloneNodePrefix(e.bipedSlot);
+                        RemoveRenameMap(objData->renameMap, prefix);
+                        RemoveMergedNode(e.skeleton, prefix);
+                    }
                     physicsWorld->RemovePhysics(e.actor->formID, XPBDWorld::RootType::kCloth, e.bipedSlot);
                     objData->rawDatas.erase(it);
                 }
             }
             PhysicsInput input;
+            DriverInput driverInput;
             RenameStringMap renameMap;
             if (std::string physicsPath = GetPhysicsInputPath(e.armor); physicsPath.empty() || !PhysicsConfigReader::GetSingleton().GetPhysicsInput(physicsPath, input))
             {
@@ -1190,12 +1225,14 @@ namespace MXPBD
                     PhysicsConfigReader::GetSingleton().ConvertSMPConfig(smpConfigPath, input);
             }
             if (!IsHDTSMPEnabled)
+            {
                 MergeArmorNodeTree(e.skeleton, e.armor, GetArmorCloneNodePrefix(e.bipedSlot), renameMap);
-            PhysicsConfigReader::GetSingleton().FixBoneName(input, renameMap);
-            PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kCloth, input);
+                PhysicsConfigReader::GetSingleton().FixBoneName(input, renameMap);
+            }
+            PhysicsConfigReader::GetSingleton().AssignDefaultCollisionLayerGroup(CollisionLayer::kOutfit, input);
 
             objData->renameMap.insert(renameMap.begin(), renameMap.end());
-            ObjectData::RawData data = {.rootNode = nullptr, .rootType = XPBDWorld::RootType::kCloth, .bipedSlot = e.bipedSlot, .input = input};
+            ObjectData::RawData data = {.rootNode = nullptr, .rootType = XPBDWorld::RootType::kCloth, .bipedSlot = e.bipedSlot, .rawPhysicsInput = input, .rawDriverInput = driverInput};
             auto it = std::find(objData->rawDatas.begin(), objData->rawDatas.end(), data);
             if (it != objData->rawDatas.end())
                 *it = data;
@@ -1251,10 +1288,13 @@ namespace MXPBD
                 if (!it->rootNode || !it->rootNode->parent)
                 {
                     logger::debug("{:x} Detected removed slot : {}", e.actor->formID, it->bipedSlot);
-                    const std::string prefix = GetArmorCloneNodePrefix(it->bipedSlot);
-                    RemoveRenameMap(objData->renameMap, prefix);
-                    if (auto rootNode = e.actor->loadedData && e.actor->loadedData->data3D ? e.actor->loadedData->data3D->AsNode() : nullptr; rootNode)
-                        RemoveMergedNode(rootNode, prefix);
+                    if (!IsHDTSMPEnabled)
+                    {
+                        const std::string prefix = GetArmorCloneNodePrefix(it->bipedSlot);
+                        RemoveRenameMap(objData->renameMap, prefix);
+                        if (auto rootNode = e.actor->loadedData && e.actor->loadedData->data3D ? e.actor->loadedData->data3D->AsNode() : nullptr; rootNode)
+                            RemoveMergedNode(rootNode, prefix);
+                    }
                     physicsWorld->RemovePhysics(e.actor->formID, XPBDWorld::RootType::kCloth, it->bipedSlot);
                     it = objData->rawDatas.erase(it);
                 }

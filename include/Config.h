@@ -13,6 +13,7 @@ namespace Mus {
         bool LoadConfig(std::ifstream& configfile);
         bool LoadSMPDefaultConfig();
         bool LoadSkeletonFile();
+        bool LoadDriverFile();
 
         //Debug
         [[nodiscard]] inline spdlog::level::level_enum GetLogLevel() const noexcept {
@@ -34,6 +35,9 @@ namespace Mus {
         }
         [[nodiscard]] inline auto GetRotationClampSpeed() const noexcept {
             return RotationClampSpeed;
+        }
+        [[nodiscard]] inline auto GetCollisionConvergence() const noexcept {
+            return CollisionConvergence;
         }
         [[nodiscard]] inline auto GetGroundDetectRange() const noexcept {
             return GroundDetectRange;
@@ -80,7 +84,7 @@ namespace Mus {
         float SmallGridSize = 30.0f;
         float LargeGridSize = 100.0f;
         float RotationClampSpeed = 1.0f;
-        float CollisionConvergence = 0.1f;
+        float CollisionConvergence = 0.6f;
 
         float GroundDetectRange = 0.15f;
         std::uint8_t GroundDetectQuality = 5;

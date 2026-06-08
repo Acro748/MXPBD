@@ -162,6 +162,8 @@ using EventResult = RE::BSEventNotifyControl;
 #include "MXPBD/DynamicAABBTree.h"
 #include "MXPBD/Collider.h"
 #include "MXPBD/PhysicsConfig.h"
+#include "MXPBD/PhysicsWorldData.h"
+#include "MXPBD/PhysicsWorldDriver.h"
 #include "MXPBD/PhysicsWorld.h"
 #include "MXPBD/PhysicsWorldSystem.h"
 #include "MXPBD/PhysicsWorldUpdater.h"

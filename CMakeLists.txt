@@ -11,7 +11,7 @@ else()
 endif()
 project(
         MXPBD
-        VERSION 0.3.1
+        VERSION 0.4.0
         DESCRIPTION "MXPBD(${SIMD_LEVEL}) ${TARGET_DESC}"
         LANGUAGES CXX
 )
@@ -33,6 +33,8 @@ set(headers
         include/MXPBD/PhysicsConfig.h
         include/MXPBD/PhysicsWorld.h
         include/MXPBD/PhysicsWorldCommon.h
+        include/MXPBD/PhysicsWorldData.h
+        include/MXPBD/PhysicsWorldDriver.h
         include/MXPBD/PhysicsWorldSystem.h
         include/MXPBD/PhysicsWorldUpdater.h
         include/MXPBD/ThreadPool.h
@@ -52,6 +54,7 @@ set(sources
         src/MXPBD/DynamicAABBTree.cpp
         src/MXPBD/PhysicsConfig.cpp
         src/MXPBD/PhysicsWorld.cpp
+        src/MXPBD/PhysicsWorldDriver.cpp
         src/MXPBD/PhysicsWorldSystem.cpp
         src/MXPBD/PhysicsWorldUpdater.cpp
         src/MXPBD/ThreadPool.cpp

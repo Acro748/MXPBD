@@ -10,6 +10,9 @@ namespace MXPBD
         Mus::g_facegenNiNodeEventDispatcher.addListener(this);
         Mus::g_armorAttachEventDispatcher.addListener(this);
         Mus::g_playerCellChangeEventDispatcher.addListener(this);
+
+        if (auto ui = RE::UI::GetSingleton(); ui)
+            ui->AddEventSink<RE::MenuOpenCloseEvent>(this);
     }
 
     void XPBDWorldUpdater::AddSkeletonPhysicsToWorld(RE::Actor* a_actor) const
@@ -17,7 +20,7 @@ namespace MXPBD
         if (!a_actor || !a_actor->loadedData || !a_actor->loadedData->data3D)
             return;
         logger::info("Adding physics {:x}", a_actor->formID);
-        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), XPBDWorld::kSkeleton, 0, false);
+        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), Internal::kSkeleton, 0, false);
     }
 
     void XPBDWorldUpdater::AddFacegenPhysicsToWorld(RE::Actor* a_actor) const
@@ -25,7 +28,7 @@ namespace MXPBD
         if (!a_actor || !a_actor->loadedData || !a_actor->loadedData->data3D)
             return;
         logger::info("Adding physics {:x}", a_actor->formID);
-        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), XPBDWorld::kFacegen, 0, true);
+        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, a_actor->loadedData->data3D->AsNode(), Internal::kFacegen, 0, true);
     }
 
     void XPBDWorldUpdater::AddClothPhysicsToWorld(RE::Actor* a_actor, RE::NiNode* root, std::uint32_t biped) const
@@ -38,14 +41,14 @@ namespace MXPBD
             return;
         }
         logger::info("Adding physics {:x}", a_actor->formID);
-        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, root, XPBDWorld::kCloth, biped, true);
+        XPBDWorldSystem::GetSingleton().AddPhysics(a_actor, root, Internal::kCloth, biped, true);
     }
 
     void XPBDWorldUpdater::UpdatePhysicsSetting(RE::Actor* a_actor) const
     {
         if (!a_actor)
             return;
-        XPBDWorldSystem::GetSingleton().UpdatePhysicsSetting(a_actor, Mus::ConditionManager::GetSingleton().GetCondition(a_actor));
+        XPBDWorldSystem::GetSingleton().UpdatePhysicsSetting(a_actor, false);
     }
 
     void XPBDWorldUpdater::RunSkeletonQueue()
@@ -155,6 +158,7 @@ namespace MXPBD
         auto refr = e.root->GetUserData();
         if (!refr)
             return;
+        logger::debug("FacegenNiNodeEvent : {:x}", refr->formID);
         RegisterSkeletonQueue(refr);
         RegisterFacegenQueue(refr);
     }

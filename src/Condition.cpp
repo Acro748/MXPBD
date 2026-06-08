@@ -11,7 +11,7 @@ namespace Mus {
 		}
 	}
 
-	bool ConditionManager::ConditionCheck(RE::Actor* a_actor, const ConditionPtr& condition) const
+	bool ConditionManager::ConditionCheck(RE::Actor* a_actor, const ConditionDataPtr& condition) const
 	{
         if (!a_actor)
             return false;
@@ -25,12 +25,12 @@ namespace Mus {
         });
 	}
 
-	MXPBD::PhysicsInput ConditionManager::GetCondition(RE::Actor* a_actor) const
+	MXPBD::PhysicsInput ConditionManager::GetPhysicsInput(RE::Actor* a_actor) const
 	{
         MXPBD::PhysicsInput settings;
         if (!a_actor)
             return settings;
-        for (const auto& condition : ConditionList)
+        for (const auto& condition : PhysicsConditionList)
         {
 			if (ConditionCheck(a_actor, condition))
 			{
@@ -40,7 +40,22 @@ namespace Mus {
         return settings;
 	}
 
-	bool ConditionManager::RegisterCondition(Condition& condition, bool preventDuplicate)
+	MXPBD::DriverInput ConditionManager::GetDriverInput(RE::Actor* a_actor) const
+	{
+        MXPBD::DriverInput settings;
+        if (!a_actor)
+            return settings;
+        for (const auto& condition : DriverConditionList)
+        {
+			if (ConditionCheck(a_actor, condition))
+			{
+                settings.merge(condition->setting);
+			}
+		}
+        return settings;
+	}
+
+	bool ConditionManager::RegisterCondition(PhysicsCondition& condition, bool preventDuplicate)
 	{
         if (!ParseConditions(condition))
         {
@@ -50,27 +65,52 @@ namespace Mus {
         std::lock_guard lg(ConditionListLock);
         if (preventDuplicate) [[unlikely]]
         {
-            auto found = std::find_if(ConditionList.begin(), ConditionList.end(), [&](ConditionPtr& a_condition) {
+            auto found = std::find_if(PhysicsConditionList.begin(), PhysicsConditionList.end(), [&](PhysicsConditionPtr& a_condition) {
                 return a_condition->fileName == condition.fileName;
             });
-            if (found != ConditionList.end())
+            if (found != PhysicsConditionList.end())
             {
-                (*found) = std::make_shared<Condition>(condition);
+                (*found) = std::make_shared<PhysicsCondition>(condition);
                 logger::info("{} : Found the old condition. so overwrite the condition", condition.fileName);
                 return true;
             }
         }
-        ConditionList.push_back(std::make_shared<Condition>(condition));
+        PhysicsConditionList.push_back(std::make_shared<PhysicsCondition>(condition));
+		return true;
+	}
+
+	bool ConditionManager::RegisterCondition(DriverCondition& condition, bool preventDuplicate)
+	{
+        if (!ParseConditions(condition))
+        {
+            logger::error("{} : Invalid condition. so skip.", condition.fileName);
+            return false;
+        }
+        std::lock_guard lg(ConditionListLock);
+        if (preventDuplicate) [[unlikely]]
+        {
+            auto found = std::find_if(DriverConditionList.begin(), DriverConditionList.end(), [&](DriverConditionPtr& a_condition) {
+                return a_condition->fileName == condition.fileName;
+            });
+            if (found != DriverConditionList.end())
+            {
+                (*found) = std::make_shared<DriverCondition>(condition);
+                logger::info("{} : Found the old condition. so overwrite the condition", condition.fileName);
+                return true;
+            }
+        }
+        DriverConditionList.push_back(std::make_shared<DriverCondition>(condition));
 		return true;
 	}
 
 	void ConditionManager::SortConditions()
 	{
         logger::info("sorting conditions...");
-        std::ranges::sort(ConditionList, std::ranges::greater(), [](const ConditionPtr& c) { return c->Priority; });
+        std::ranges::sort(PhysicsConditionList, std::ranges::greater(), [](const PhysicsConditionPtr& c) { return c->Priority; });
+        std::ranges::sort(DriverConditionList, std::ranges::greater(), [](const DriverConditionPtr& c) { return c->Priority; });
 	}
 
-	bool ConditionManager::ParseConditions(Condition& condition) const
+	bool ConditionManager::ParseConditions(ConditionData& condition) const
 	{
         std::vector<std::string> splittedANDs = splitCondition(condition.originalCondition, "AND");
 

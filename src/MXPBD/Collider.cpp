@@ -4,6 +4,54 @@
 
 namespace MXPBD
 {
+    const std::unordered_map<Mus::lString, std::uint32_t>& GetCollisionLayerEnum()
+    {
+        static bool isInit = false;
+        static std::unordered_map<Mus::lString, std::uint32_t> LayerStrings;
+        if (isInit)
+            return LayerStrings;
+        isInit = true;
+        LayerStrings["Skeleton"] = CollisionLayer::kSkeleton;
+        LayerStrings["Head"] = CollisionLayer::kHead;
+        LayerStrings["RigidBody"] = CollisionLayer::kRigidBody;
+        LayerStrings["SoftBody"] = CollisionLayer::kSoftBody;
+        LayerStrings["Genitals"] = CollisionLayer::kGenitals;
+        LayerStrings["Body"] = CollisionLayer::kBody;
+        LayerStrings["Hair"] = CollisionLayer::kHair;
+        LayerStrings["Face"] = CollisionLayer::kFace;
+        LayerStrings["FaceGen"] = CollisionLayer::kFaceGen;
+        LayerStrings["Wig"] = CollisionLayer::kWig;
+        LayerStrings["Cloth"] = CollisionLayer::kCloth;
+        LayerStrings["Skirt"] = CollisionLayer::kSkirt;
+        LayerStrings["Cape"] = CollisionLayer::kCape;
+        LayerStrings["Outfit"] = CollisionLayer::kOutfit;
+        LayerStrings["Wing"] = CollisionLayer::kWing;
+        LayerStrings["Ears"] = CollisionLayer::kEars;
+        LayerStrings["Tail"] = CollisionLayer::kTail;
+        LayerStrings["Weapon"] = CollisionLayer::kWeapon;
+        LayerStrings["Ground"] = CollisionLayer::kGround;
+        LayerStrings["Static"] = CollisionLayer::kStatic;
+        LayerStrings["Environment"] = CollisionLayer::kEnvironment;
+        LayerStrings["AllLayer"] = CollisionLayer::kAllLayer;
+
+        const std::uint32_t baseIdx = 16;
+        for (std::uint32_t i = baseIdx + 1; i <= 31; ++i)
+        {
+            LayerStrings["Misc" + std::to_string(i - baseIdx)] = 1 << i;
+        }
+        return LayerStrings;
+    }
+    std::uint32_t GetStringAsBitMask(const Mus::lString& str)
+    {
+        const auto& layerStrings = GetCollisionLayerEnum();
+        auto it = layerStrings.find(str);
+        if (it != layerStrings.end())
+        {
+            return it->second;
+        }
+        return 0;
+    }
+
     ColliderType GetColliderType(const Mus::lString& str)
     {
         if (str == "convexHull")
@@ -33,76 +81,96 @@ namespace MXPBD
         if (a_pointCloud.vertices.empty())
             return;
 
-        std::vector<VertexGroup> groups;
-        VertexGroup initialGroup;
-        initialGroup.vertices = a_pointCloud.vertices;
-        initialGroup.UpdateBounds();
-        groups.push_back(initialGroup);
+        a_rawCollider.boneName = a_pointCloud.boneName;
+        a_rawCollider.nearBones = a_pointCloud.nearBones;
 
-        while (groups.size() < COL_SPHERE_MAX)
+        std::vector<RE::NiPoint3> validVertices;
+        validVertices.reserve(a_pointCloud.vertices.size());
+        for (const auto& v : a_pointCloud.vertices)
         {
-            float maxVolume = -1.0f;
-            std::size_t splitIdx = 0;
-            for (std::size_t i = 0; i < groups.size(); ++i)
-            {
-                float vol = groups[i].GetVolume();
-                if (vol > maxVolume && groups[i].vertices.size() >= 2)
-                {
-                    maxVolume = vol;
-                    splitIdx = i;
-                }
-            }
-            if (maxVolume < 0.0f)
-                break;
-
-            VertexGroup toSplit = groups[splitIdx];
-            groups.erase(groups.begin() + splitIdx);
-            RE::NiPoint3 extents = toSplit.maxPt - toSplit.minPt;
-            int axis = 0;
-            if (extents.y > extents.x && extents.y > extents.z)
-                axis = 1;
-            else if (extents.z > extents.x && extents.z > extents.y)
-                axis = 2;
-            auto comparator = [axis](const RE::NiPoint3& a, const RE::NiPoint3& b) {
-                if (axis == 0)
-                    return a.x < b.x;
-                if (axis == 1)
-                    return a.y < b.y;
-                return a.z < b.z;
-            };
-
-            std::size_t mid = toSplit.vertices.size() / 2;
-            std::nth_element(toSplit.vertices.begin(), toSplit.vertices.begin() + mid, toSplit.vertices.end(), comparator);
-
-            VertexGroup groupA, groupB;
-            groupA.vertices.assign(toSplit.vertices.begin(), toSplit.vertices.begin() + mid);
-            groupB.vertices.assign(toSplit.vertices.begin() + mid, toSplit.vertices.end());
-
-            groupA.UpdateBounds();
-            groupB.UpdateBounds();
-
-            groups.push_back(groupA);
-            groups.push_back(groupB);
+            if (abs(v) < pEpsilon)
+                continue;
+            validVertices.push_back(v);
         }
 
-        for (std::size_t i = 0; i < groups.size(); ++i)
+        if (validVertices.empty())
+            return;
+
+        std::vector<std::uint32_t> selectedIndices(COL_SPHERE_MAX);
+        std::uint32_t generatedCount = 0;
+
+        if (validVertices.size() <= COL_SPHERE_MAX)
         {
-            RE::NiPoint3 center = (groups[i].minPt + groups[i].maxPt) * 0.5f;
-
-            float maxDistSq = 0.0f;
-            for (const auto& v : groups[i].vertices)
+            generatedCount = validVertices.size();
+            for (std::uint32_t i = 0; i < generatedCount; ++i)
             {
-                float distSq = (v - center).SqrLength();
-                if (distSq > maxDistSq)
-                {
-                    maxDistSq = distSq;
-                }
+                selectedIndices[i] = i;
             }
+        }
+        else
+        {
+            generatedCount = meshopt_simplifyPoints(
+                selectedIndices.data(),
+                reinterpret_cast<const float*>(validVertices.data()),
+                validVertices.size(),
+                sizeof(RE::NiPoint3),
+                NULL,
+                0,
+                1.0f,
+                COL_SPHERE_MAX);
+        }
 
+        for (std::uint32_t i = 0; i < generatedCount; ++i)
+        {
+            const RE::NiPoint3& center = validVertices[selectedIndices[i]];
             a_rawCollider.sphereData.cX[i] = center.x;
             a_rawCollider.sphereData.cY[i] = center.y;
             a_rawCollider.sphereData.cZ[i] = center.z;
-            a_rawCollider.sphereData.radius[i] = std::sqrt(maxDistSq);
+
+            float minNeighborDistSq = FLT_MAX;
+            for (std::uint32_t j = 0; j < generatedCount; ++j)
+            {
+                if (i == j)
+                    continue;
+                const RE::NiPoint3& neighbor = validVertices[selectedIndices[j]];
+                float distSq = (center - neighbor).SqrLength();
+                if (distSq < minNeighborDistSq)
+                {
+                    minNeighborDistSq = distSq;
+                }
+            }
+
+            if (minNeighborDistSq == FLT_MAX)
+            {
+                float maxOriginalDistSq = 0.0f;
+                for (const auto& v : validVertices)
+                {
+                    float distSq = (v - center).SqrLength();
+                    if (distSq > maxOriginalDistSq)
+                        maxOriginalDistSq = distSq;
+                }
+                a_rawCollider.sphereData.radius[i] = std::sqrt(maxOriginalDistSq) * 0.6f;
+            }
+            else
+            {
+                a_rawCollider.sphereData.radius[i] = 0.5f;
+            }
+        }
+
+        if (generatedCount > 0 && generatedCount < COL_SPHERE_MAX)
+        {
+            const float lastCX = a_rawCollider.sphereData.cX[generatedCount - 1];
+            const float lastCY = a_rawCollider.sphereData.cY[generatedCount - 1];
+            const float lastCZ = a_rawCollider.sphereData.cZ[generatedCount - 1];
+            const float lastRadius = a_rawCollider.sphereData.radius[generatedCount - 1];
+
+            for (std::uint32_t i = generatedCount; i < COL_SPHERE_MAX; ++i)
+            {
+                a_rawCollider.sphereData.cX[i] = lastCX;
+                a_rawCollider.sphereData.cY[i] = lastCY;
+                a_rawCollider.sphereData.cZ[i] = lastCZ;
+                a_rawCollider.sphereData.radius[i] = lastRadius;
+            }
         }
     }
 
@@ -114,18 +182,18 @@ namespace MXPBD
         auto& qhIndices = qhull.getIndexBuffer();
 
         a_rawCollider.boneName = a_pointCloud.boneName;
+        a_rawCollider.nearBones = a_pointCloud.nearBones;
         a_rawCollider.indices.assign_range(qhIndices);
         a_rawCollider.vertices.reserve(qhVertices.size());
         a_rawCollider.orgVertexIndex.reserve(qhVertices.size());
         for (const auto& qhv : qhVertices)
         {
-            a_rawCollider.vertices.push_back(RE::NiPoint3(qhv.x, qhv.y, qhv.z));
+            const RE::NiPoint3 vert = {qhv.x, qhv.y, qhv.z};
+            a_rawCollider.vertices.push_back(vert);
 
             for (std::uint32_t i = 0; i < a_pointCloud.vertices.size(); ++i)
             {
-                if (std::abs(qhv.x - a_pointCloud.vertices[i].x) < 0.0001f &&
-                    std::abs(qhv.y - a_pointCloud.vertices[i].y) < 0.0001f &&
-                    std::abs(qhv.z - a_pointCloud.vertices[i].z) < 0.0001f)
+                if (abs(vert - a_pointCloud.vertices[i]) < pEpsilon)
                 {
                     a_rawCollider.orgVertexIndex.push_back(i);
                     break;
@@ -379,7 +447,7 @@ namespace MXPBD
         result.reserve(a_boneVertexData.boneVertexData.size());
         for (auto& data : a_boneVertexData.boneVertexData)
         {
-            result.emplace_back(data.second, data.first);
+            result.emplace_back(data.second.vertices, data.first, data.second.nearBones);
         }
         return result;
     }
@@ -392,11 +460,8 @@ namespace MXPBD
             BoneVertexData newBoneVertexData = GetGeometryData(geo);
             for (auto& data : newBoneVertexData.boneVertexData)
             {
-                boneVertData.boneVertexData[data.first].append_range(data.second);
-            }
-            for (auto& nearBone : newBoneVertexData.nearBones)
-            {
-                boneVertData.nearBones[nearBone.first].insert(nearBone.second.begin(), nearBone.second.end());
+                boneVertData.boneVertexData[data.first].vertices.insert(boneVertData.boneVertexData[data.first].vertices.end(), data.second.vertices.begin(), data.second.vertices.end());
+                boneVertData.boneVertexData[data.first].nearBones.insert(data.second.nearBones.begin(), data.second.nearBones.end());
             }
         }
         return boneVertData;
@@ -457,9 +522,25 @@ namespace MXPBD
             if (!boneData || boneCount == 0)
                 return boneVertData;
             IdxToBoneData.resize(boneCount);
+
+            // idk why there's weird ptr
+            auto BoneCheck = [](RE::NiAVObject* bone) {
+                if (!bone)
+                    return false;
+                __try
+                {
+                    if (bone->name.empty())
+                        return false;
+
+                    return true;
+                } __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    return false;
+                }
+            };
             for (std::uint32_t i = 0; i < boneCount; ++i)
             {
-                if (!bones[i] || bones[i]->name.empty())
+                if (!BoneCheck(bones[i]))
                     continue;
                 std::string_view boneName = bones[i]->name.c_str();
                 IdxToBoneData[i].boneName = boneName;
@@ -541,15 +622,15 @@ namespace MXPBD
                     const std::uint8_t bi = boneData.boneIdx[bdi];
                     const std::string boneName = IdxToBoneData[bi].boneName;
                     const RE::NiTransform transform = IdxToBoneData[bi].boneToSkin;
-                    const RE::NiPoint3 localPos = transform.rotate.Transpose() * (pos - transform.translate) * (1.0f / transform.scale);
-                    boneVertData.boneVertexData[boneName].push_back(localPos);
+                    const RE::NiPoint3 localPos = transform.rotate.Transpose() * (pos - transform.translate) * reciprocal(transform.scale);
+                    boneVertData.boneVertexData[boneName].vertices.push_back(localPos);
                     for (std::uint8_t bdiAlt = 0; bdiAlt < 4; ++bdiAlt)
                     {
                         if (bdi == bdiAlt || !isValid(bdiAlt))
                             continue;
                         const std::uint8_t altBi = boneData.boneIdx[bdiAlt];
                         const std::string nearBoneName = IdxToBoneData[altBi].boneName;
-                        boneVertData.nearBones[boneName].insert(nearBoneName);
+                        boneVertData.boneVertexData[boneName].nearBones.insert(nearBoneName);
                     }
                 }
             }
@@ -576,7 +657,7 @@ namespace MXPBD
                 RE::NiPoint3 pos;
                 pos = *reinterpret_cast<RE::NiPoint3*>(block);
                 const std::string boneName = IdxToBoneData[0].boneName;
-                boneVertData.boneVertexData[boneName].push_back(pos);
+                boneVertData.boneVertexData[boneName].vertices.push_back(pos);
             }
         }
         return boneVertData;
@@ -660,6 +741,41 @@ namespace MXPBD
             return XXH3_64bits(renderedData->rawVertexData, vertexSize * vertexCount);
         }
         return 0;
+    }
+
+    std::uint32_t GetBipedSlot(RE::BSGeometry* a_geo)
+    {
+        std::uint32_t slot = RE::BIPED_OBJECT::kBody;
+        if (!a_geo)
+            return slot;
+        bool isDynamicTriShape = a_geo->AsDynamicTriShape() ? true : false;
+        auto skinInstance = a_geo->GetGeometryRuntimeData().skinInstance.get();
+        auto dismember = netimmerse_cast<RE::BSDismemberSkinInstance*>(skinInstance);
+        if (dismember)
+        {
+            std::int32_t pslot = -1;
+            for (std::int32_t p = 0; p < dismember->GetRuntimeData().numPartitions; p++)
+            {
+                pslot = dismember->GetRuntimeData().partitions[p].slot;
+                if (pslot < 30 || pslot >= RE::BIPED_OBJECT::kEditorTotal + 30)
+                {
+                    if (isDynamicTriShape) // maybe head
+                        slot = RE::BIPED_OBJECT::kHead;
+                    else if (pslot == 0) // BP_TORSO
+                        slot = RE::BIPED_OBJECT::kBody;
+                    else // unknown slot
+                        continue;
+                }
+                else
+                    slot = pslot - 30;
+                break;
+            }
+        }
+        else
+        {
+            slot = isDynamicTriShape ? RE::BIPED_OBJECT::kHead : RE::BIPED_OBJECT::kBody;
+        }
+        return slot;
     }
 
     void writeWaveformOBJ(const std::string& filename, const std::string& objectName, const std::vector<RE::NiPoint3>& vertices, const std::vector<std::uint32_t>& indices)

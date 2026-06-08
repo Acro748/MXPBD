@@ -80,41 +80,39 @@ namespace Mus {
     REL::Relocation<_MainUpdate> MainUpdateOrig;
     void onMainUpdate()
     {
+        const auto main = RE::Main::GetSingleton();
+        const auto menu = RE::UI::GetSingleton();
         {
-            const auto main = RE::Main::GetSingleton();
-            const auto menu = RE::UI::GetSingleton();
             FrameEvent e;
-            e.hookType = FrameEvent::HookType::kEnd;
             e.gamePaused = (main ? main->freezeTime : false) || (menu && menu->numPausesGame > 0);
+            e.hookType = FrameEvent::HookType::kEnd;
             g_frameEventDispatcher.dispatch(e);
         }
 
         MainUpdateOrig();
 
-        auto p = RE::PlayerCharacter::GetSingleton();
-        if (!p)
-            return;
-        if (auto currentCell = p->GetParentCell(); currentCell)
+        if (auto p = RE::PlayerCharacter::GetSingleton(); p)
         {
-            if (PlayerCurrentCell != 0)
+            if (auto currentCell = p->GetParentCell(); currentCell)
             {
-                if (PlayerCurrentCell != currentCell->formID)
+                if (PlayerCurrentCell != 0)
                 {
-                    PlayerCellChangeEvent ce;
-                    ce.IsExterior = currentCell->IsExteriorCell();
-                    ce.IsChangedInOut = IsPlayerExterior != ce.IsExterior;
-                    g_playerCellChangeEventDispatcher.dispatch(ce);
+                    if (PlayerCurrentCell != currentCell->formID)
+                    {
+                        PlayerCellChangeEvent ce;
+                        ce.IsExterior = currentCell->IsExteriorCell();
+                        ce.IsChangedInOut = IsPlayerExterior != ce.IsExterior;
+                        g_playerCellChangeEventDispatcher.dispatch(ce);
+                    }
                 }
+                PlayerCurrentCell = currentCell->formID;
+                IsPlayerExterior = currentCell->IsExteriorCell();
             }
-            PlayerCurrentCell = currentCell->formID;
-            IsPlayerExterior = currentCell->IsExteriorCell();
         }
         {
-            const auto main = RE::Main::GetSingleton();
-            const auto menu = RE::UI::GetSingleton();
             FrameEvent e;
-            e.hookType = FrameEvent::HookType::kStart;
             e.gamePaused = (main ? main->freezeTime : false) || (menu && menu->numPausesGame > 0);
+            e.hookType = FrameEvent::HookType::kStart;
             g_frameEventDispatcher.dispatch(e);
         }
     }

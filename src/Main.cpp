@@ -82,6 +82,7 @@ namespace {
         MXPBD::GetCollisionLayerEnum();
         Mus::Config::GetSingleton().LoadConfig();
         Mus::Config::GetSingleton().LoadSkeletonFile();
+        Mus::Config::GetSingleton().LoadDriverFile();
         Mus::ConditionManager::GetSingleton().SortConditions();
         Mus::Config::GetSingleton().LoadSMPDefaultConfig();
         MXPBD::IsHDTSMPEnabled = GetModuleHandleW(L"hdtSMP64");

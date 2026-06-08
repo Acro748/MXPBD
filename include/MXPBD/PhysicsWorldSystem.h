@@ -21,7 +21,6 @@ namespace MXPBD {
         void LoadConfigOnPhysicsWorld();
 
         void AddPhysics(RE::TESObjectREFR* object, RE::NiNode* rootNode, const XPBDWorld::RootType rootType, const std::uint32_t bipedSlot, const bool isAddCollider);
-        void UpdatePhysicsSetting(RE::TESObjectREFR* object, PhysicsInput input);
         void UpdatePhysicsSetting(RE::TESObjectREFR* object, bool isAddCollider);
         void Reset() const;
         void Reset(RE::TESObjectREFR* object) const;
@@ -59,7 +58,8 @@ namespace MXPBD {
                         return rootType < other.rootType;
                     return bipedSlot < other.bipedSlot;
                 }
-                PhysicsInput input;
+                PhysicsInput rawPhysicsInput;
+                DriverInput rawDriverInput;
                 std::vector<RawColliderData> rawColliderDatas;
             };
             std::vector<RawData> rawDatas;
@@ -91,31 +91,6 @@ namespace MXPBD {
 
         void DetectMorphChanges();
 
-        class TimeProfiler {
-        public:
-            TimeProfiler() = delete;
-            TimeProfiler(const std::string& a_funcName) : funcName(a_funcName) {};
-            void Start() {
-                timeStart = std::chrono::high_resolution_clock::now();
-            }
-            void End(const XPBDWorldSystem* worldSystem) {
-                const auto timeEnd = std::chrono::high_resolution_clock::now();
-                nsSum += std::chrono::duration_cast<std::chrono::nanoseconds>(timeEnd - timeStart).count();
-                timeCount++;
-                if (timeCount >= 1000) {
-                    const auto ms = (nsSum * 0.001f) * ns2ms;
-                    logger::debug("{} time: {:.3f}ms", funcName, ms);
-                    nsSum = 0;
-                    timeCount = 0;
-                }
-            }
-
-        private:
-            std::string funcName = "";
-            double nsSum = 0.0;
-            std::uint32_t timeCount = 0;
-            std::chrono::steady_clock::time_point timeStart;
-        };
     protected:
         void onEvent(const Mus::FrameEvent& e) override;
         void onEvent(const Mus::FacegenNiNodeEvent& e) override;

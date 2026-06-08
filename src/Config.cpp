@@ -123,6 +123,10 @@ namespace Mus {
                 {
                     RotationClampSpeed = GetFloatValue(variableValue);
                 }
+                else if (variableName == "CollisionConvergence")
+                {
+                    CollisionConvergence = GetFloatValue(variableValue);
+                }
                 else if (variableName == "GroundDetectRange")
                 {
                     GroundDetectRange = GetFloatValue(variableValue);
@@ -176,6 +180,7 @@ namespace Mus {
     {
         std::string conditionPath = GetRuntimeSKSEDirectory();
         conditionPath += SKSE::PluginDeclaration::GetSingleton()->GetName().data();
+        conditionPath += "\\";
         auto files = GetAllFiles(conditionPath);
         tbb::parallel_for(
             tbb::blocked_range<std::size_t>(0, files.size()),
@@ -210,7 +215,7 @@ namespace Mus {
 
                     tinyxml2::XMLElement* root = doc.RootElement();
                     logger::info("File found: {}", filename);
-                    ConditionManager::Condition condition;
+                    ConditionManager::PhysicsCondition condition;
                     condition.fileName = filename;
 
                     tinyxml2::XMLElement* ConditionRoot = root->FirstChildElement("Condition");
@@ -231,6 +236,68 @@ namespace Mus {
             },
             tbb::auto_partitioner()
         );
+        return true;
+    }
+
+    bool Config::LoadDriverFile()
+    {
+        std::string conditionPath = GetRuntimeSKSEDirectory();
+        conditionPath += SKSE::PluginDeclaration::GetSingleton()->GetName().data();
+        conditionPath += "\\Driver\\";
+        auto files = GetAllFiles(conditionPath);
+        tbb::parallel_for(
+            tbb::blocked_range<std::size_t>(0, files.size()),
+            [&](const tbb::blocked_range<std::size_t>& r) {
+                for (std::size_t i = r.begin(); i != r.end(); ++i)
+                {
+                    std::u8string filename_utf8 = files[i].filename().u8string();
+                    std::string filename(filename_utf8.begin(), filename_utf8.end());
+                    if (filename == "." || filename == "..")
+                        return;
+                    if (!stringEndsWith(filename, ".xml"))
+                        return;
+
+                    std::string filePath = conditionPath + "\\" + filename;
+                    tinyxml2::XMLDocument doc;
+                    const auto error = doc.LoadFile(filePath.c_str());
+                    switch (error)
+                    {
+                    case tinyxml2::XML_SUCCESS:
+                        break;
+                    case tinyxml2::XML_ERROR_FILE_NOT_FOUND:
+                    case tinyxml2::XML_ERROR_FILE_COULD_NOT_BE_OPENED:
+                    case tinyxml2::XML_ERROR_FILE_READ_ERROR:
+                        logger::error("{} : Unable to open the file ({})", filePath, std::to_underlying(error));
+                        return;
+                        break;
+                    default:
+                        logger::error("{} : The file's xml format is invalid ({})", filePath, std::to_underlying(error));
+                        return;
+                        break;
+                    };
+
+                    tinyxml2::XMLElement* root = doc.RootElement();
+                    logger::info("File found: {}", filename);
+                    ConditionManager::DriverCondition condition;
+                    condition.fileName = filename;
+
+                    tinyxml2::XMLElement* ConditionRoot = root->FirstChildElement("Condition");
+                    if (!ConditionRoot)
+                        return;
+                    const char* orgCondition = ConditionRoot->Attribute("condition");
+                    if (!orgCondition)
+                        return;
+                    logger::info("{} : condition {}", filename, orgCondition);
+                    condition.originalCondition = orgCondition;
+                    ConditionRoot->QueryIntAttribute("priority", &condition.Priority);
+                    logger::info("{} : priority {}", filename, condition.Priority);
+
+                    if (!MXPBD::PhysicsConfigReader::GetSingleton().GetDriverInput(root, filename, condition.setting))
+                        return;
+                    ConditionManager::GetSingleton().RegisterCondition(condition);
+                }
+            },
+            tbb::auto_partitioner());
         return true;
     }
 

@@ -207,7 +207,7 @@ namespace MXPBD {
         return DirectX::XMVectorSelect(vZero, invMassInertia, mask);
     };
 
-    [[nodiscard]] inline RE::NiPoint3 GetABSPoint3(const RE::NiPoint3& p3) {
+    [[nodiscard]] inline RE::NiPoint3 abs(const RE::NiPoint3& p3) {
         return ToNiPoint(DirectX::XMVectorAbs(ToVector(p3)));
     };
 
@@ -221,6 +221,11 @@ namespace MXPBD {
         return ToNiPoint(DirectX::XMVectorClamp(ToVector(p3), DirectX::XMVectorReplicate(min), DirectX::XMVectorReplicate(max)));
     };
 
+    inline void ClampZeroToInfinity(float& f) {
+        if (f <= Epsilon)
+            f = halfInf;
+    }
+
     inline void ClampZeroToInfinity(Vector& v) {
         if (DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(v)) <= Epsilon)
             v = vHalfInf;
@@ -229,6 +234,11 @@ namespace MXPBD {
     inline void ClampZeroToInfinityRot(Vector& v, bool negative) {
         if (DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(v)) <= Epsilon)
             v = negative ? vNegPi : vPi;
+    }
+
+    inline void ClampZeroToOneRadian(Vector& v, bool negative) {
+        if (DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(v)) <= Epsilon)
+            v = negative ? vNegOneRadian : vOneRadian;
     }
 
     inline bool IsInvalid(const Vector& v) {
@@ -252,4 +262,8 @@ namespace MXPBD {
         }
         return m;
     }
-}
+
+    inline RE::NiPoint3 lerp(const RE::NiPoint3& a, const RE::NiPoint3& b, float t) {
+        return ToNiPoint(DirectX::XMVectorLerp(ToVector(a), ToVector(b), t));
+    }
+} // namespace MXPBD

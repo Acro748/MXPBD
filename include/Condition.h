@@ -17,7 +17,8 @@ namespace Mus {
 
 		void InitialConditionMap();
         void InitialCondition() {
-            ConditionList.clear();
+            PhysicsConditionList.clear();
+            DriverConditionList.clear();
         };
 
 		enum ConditionType : std::uint32_t {
@@ -46,37 +47,52 @@ namespace Mus {
 		};
 		typedef std::vector<ConditionItem> ConditionItemOr;
 
-		struct Condition {
-			std::string fileName;
-			std::string originalCondition;
-			std::vector<ConditionItemOr> AND;
-			std::int32_t Priority = 0;
-
-			MXPBD::PhysicsInput setting;
-
-            bool operator<(const Condition& other) const {
+        struct ConditionData {
+            std::string fileName;
+            std::string originalCondition;
+            std::vector<ConditionItemOr> AND;
+            std::int32_t Priority = 0;
+            MXPBD::PhysicsInput setting;
+            bool operator<(const ConditionData& other) const {
                 return Priority < other.Priority;
             }
+        };
+        typedef std::shared_ptr<ConditionData> ConditionDataPtr;
+
+		struct PhysicsCondition : ConditionData {
+			MXPBD::PhysicsInput setting;
 		};
-        typedef std::shared_ptr<Condition> ConditionPtr;
-        bool RegisterCondition(Condition& condition, bool preventDuplicate = false);
+		struct DriverCondition : ConditionData {
+			MXPBD::DriverInput setting;
+		};
+
+        typedef std::shared_ptr<PhysicsCondition> PhysicsConditionPtr;
+        bool RegisterCondition(PhysicsCondition& condition, bool preventDuplicate = false);
+        typedef std::shared_ptr<DriverCondition> DriverConditionPtr;
+        bool RegisterCondition(DriverCondition& condition, bool preventDuplicate = false);
 		void SortConditions();
 
-        MXPBD::PhysicsInput GetCondition(RE::Actor* a_actor) const;
-        std::size_t ConditionCount() const {
-            return ConditionList.size();
+        MXPBD::PhysicsInput GetPhysicsInput(RE::Actor* a_actor) const;
+        std::size_t PhysicsConditionCount() const {
+            return PhysicsConditionList.size();
+        };
+
+        MXPBD::DriverInput GetDriverInput(RE::Actor* a_actor) const;
+        std::size_t DriverConditionCount() const {
+            return DriverConditionList.size();
         };
 	private:
-        std::vector<ConditionPtr> ConditionList;
+        std::vector<PhysicsConditionPtr> PhysicsConditionList;
+        std::vector<DriverConditionPtr> DriverConditionList;
         std::mutex ConditionListLock; // lock for write only
 
 		std::unordered_map<std::string, ConditionType> ConditionMap;
 
-	    bool ParseConditions(Condition& condition) const;
+	    bool ParseConditions(ConditionData& condition) const;
 		ConditionType GetConditionType(std::string line, ConditionItem& item) const;
 
 		bool GetConditionFunction(ConditionItem& item) const;
-        bool ConditionCheck(RE::Actor* a_actor, const ConditionPtr& condition) const;
+        bool ConditionCheck(RE::Actor* a_actor, const ConditionDataPtr& condition) const;
 
 		inline std::vector<std::string> splitCondition(const std::string& s, const std::string& delimiter) const {
             std::string str = trim_copy(s);

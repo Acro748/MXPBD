@@ -39,6 +39,7 @@ namespace Mus {
             {
                 ConditionManager::GetSingleton().InitialCondition();
                 Config::GetSingleton().LoadSkeletonFile();
+                Config::GetSingleton().LoadDriverFile();
                 ConditionManager::GetSingleton().SortConditions();
                 Config::GetSingleton().LoadSMPDefaultConfig();
                 if (a_actor->loadedData && a_actor->loadedData->data3D)
